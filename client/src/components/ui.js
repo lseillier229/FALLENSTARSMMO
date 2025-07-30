@@ -37,7 +37,7 @@ function UI({ gameState, socket, onTargetSelect }) {
             {/* Panel d'actions */}
             <div className="action-panel">
                 <h3>⚡ Actions</h3>
-                <button onClick={() => handleAction('rest')} className="action-btn">
+                <button onClick={() => handleAction('rest')} className="action-btn" disabled={!gameState.player || gameState.player.inCombat || gameState.player.isDead}>
                     😴 Se reposer
                 </button>
                 <button onClick={() => handleAction('flee')} className="action-btn">

@@ -5,11 +5,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import GameCanvas from './gamecanvas';
 import UI from './ui';
+import CombatUI from './combatui';
 import './game.css';
 
 function Game({ user }) {
     const [socket, setSocket] = useState(null);
     const [gameState, setGameState] = useState({
+        combat: { active: false, player: null, monster: null, skills: [], turn: 'player', log: [] },
         player: null,
         worldData: null,
         players: [],
@@ -36,6 +38,14 @@ function Game({ user }) {
             }));
             setConnected(true);
         });
+        // Réception d'un chunk de terrain
+        newSocket.on('chunk', ({ chunk }) => {
+            setGameState(prev => ({
+                ...prev,
+                worldData: { ...(prev.worldData || {}), chunk }
+            }));
+        });
+
 
         newSocket.on('authError', (error) => {
             console.error('Erreur auth:', error);
@@ -62,6 +72,86 @@ function Game({ user }) {
                 }
             }));
         });
+
+        
+        // Combat events
+        newSocket.on('combatStarted', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                combat: {
+                    active: true,
+                    player: data.player,
+                    monster: data.monster,
+                    skills: data.skills || [],
+                    turn: data.turn || 'player',
+                    log: [{ side: 'system', text: 'Combat engagé !' }]
+                }
+            }));
+        });
+
+        newSocket.on('combatUpdate', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { ...prev.player, hp: data.player.hp, pa: data.player.pa },
+                combat: {
+                    ...prev.combat,
+                    player: data.player,
+                    monster: data.monster,
+                    turn: data.turn,
+                    log: [...prev.combat.log, ...data.log]
+                }
+            }));
+        });
+
+        newSocket.on('combatEnded', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { 
+                    ...prev.player, 
+                    xp: data.player.xp, 
+                    level: data.player.level,
+                    hp: data.player.hp,
+                    maxHp: data.player.maxHp,
+                    kamas: data.player.kamas 
+                },
+                combat: { active: false, player: null, monster: null, skills: [], turn: 'player', log: [] },
+                chatMessages: [...prev.chatMessages, { type: 'system', text: data.message, timestamp: Date.now() }]
+            }));
+        });
+        // Repos
+        newSocket.on('restResult', ({ hp, maxHp }) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { ...prev.player, hp, maxHp }
+            }));
+        });
+
+        // Joueur K.O.
+        newSocket.on('playerDied', ({ respawnIn }) => {
+            setGameState(prev => ({
+                ...prev,
+                combat: { active: false, player: null, monster: null, skills: [], turn: 'player', log: [] },
+                player: { ...prev.player, hp: 0, inCombat: false, isDead: true },
+                chatMessages: [
+                    ...prev.chatMessages,
+                    { type: 'system', text: `💀 Vous êtes K.O. Réapparition dans ${Math.floor(respawnIn/1000)}s.`, timestamp: Date.now() }
+                ]
+            }));
+        });
+
+        // Réapparition
+        newSocket.on('respawn', ({ player }) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { ...prev.player, ...player },
+                chatMessages: [
+                    ...prev.chatMessages,
+                    { type: 'system', text: `🔁 Réapparu en (${player.x}, ${player.y}).`, timestamp: Date.now() }
+                ]
+            }));
+        });
+
+
 
         newSocket.on('attackResult', (data) => {
             // Afficher les dégâts
@@ -117,15 +207,21 @@ function Game({ user }) {
             }
 
             // Attaque avec espace
-            if (e.key === ' ' && gameState.selectedTarget) {
+            if (e.key === ' ') {
                 e.preventDefault();
-                socket.emit('attack', gameState.selectedTarget);
+                // En combat, les attaques se font via la barre de compétences.
             }
         };
 
         window.addEventListener('keydown', handleKeyPress);
         return () => window.removeEventListener('keydown', handleKeyPress);
     }, [socket, gameState.player, gameState.selectedTarget]);
+
+    const handleUseSkill = (skillId) => {
+        if (!socket || !gameState.combat?.active) return;
+        const monsterId = gameState.combat.monster?.id;
+        socket.emit('useSkill', { targetId: monsterId, skillId });
+    };
 
     const handleTargetSelect = (targetId) => {
         setGameState(prev => ({
@@ -147,6 +243,7 @@ function Game({ user }) {
         <div className="game-container">
             <GameCanvas 
                 gameState={gameState}
+                socket={socket}
                 onTargetSelect={handleTargetSelect}
             />
             <UI 
@@ -154,6 +251,13 @@ function Game({ user }) {
                 socket={socket}
                 onTargetSelect={handleTargetSelect}
             />
+            {gameState.combat?.active && (
+                <CombatUI
+                    combat={gameState.combat}
+                    onUseSkill={handleUseSkill}
+                    onClose={() => setGameState(prev => ({ ...prev, combat: { ...prev.combat, active:false } }))}
+                />
+            )}
         </div>
     );
 }

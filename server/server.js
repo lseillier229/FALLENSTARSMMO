@@ -10,6 +10,84 @@ const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 require('dotenv').config();
 
+
+// ====== Perlin noise (simple) ======
+class Perlin {
+    constructor(seed = 1337) {
+        this.p = new Uint8Array(512);
+        let perm = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) perm[i] = i;
+        let s = seed >>> 0;
+        for (let i = 255; i > 0; i--) {
+            s = (s * 1664525 + 1013904223) >>> 0;
+            const r = s % (i + 1);
+            const tmp = perm[i]; perm[i] = perm[r]; perm[r] = tmp;
+        }
+        for (let i = 0; i < 512; i++) this.p[i] = perm[i & 255];
+    }
+    fade(t){ return t * t * t * (t * (t * 6 - 15) + 10); }
+    lerp(a, b, t){ return a + t * (b - a); }
+    grad(h, x, y){
+        switch(h & 3){
+            case 0: return  x + y;
+            case 1: return -x + y;
+            case 2: return  x - y;
+            default:return -x - y;
+        }
+    }
+    noise(x, y){
+        const X = Math.floor(x) & 255;
+        const Y = Math.floor(y) & 255;
+        x -= Math.floor(x);
+        y -= Math.floor(y);
+        const u = this.fade(x);
+        const v = this.fade(y);
+        const A  = this.p[X] + Y;
+        const B  = this.p[X + 1] + Y;
+        const p = this.p;
+        const n00 = this.grad(p[A], x, y);
+        const n01 = this.grad(p[A + 1], x, y - 1);
+        const n10 = this.grad(p[B], x - 1, y);
+        const n11 = this.grad(p[B + 1], x - 1, y - 1);
+        const nx0 = this.lerp(n00, n10, u);
+        const nx1 = this.lerp(n01, n11, u);
+        return this.lerp(nx0, nx1, v); // approx in [-1,1]
+    }
+}
+// ====== end Perlin ======
+
+
+
+// === Combat/Skills config ===
+const SKILLS = {
+    iop: [
+        { id: 'iop_strike', name: 'Coup de Iop', pa: 3, power: [18, 26] },
+        { id: 'colere', name: 'Colère', pa: 5, power: [35, 50] }
+    ],
+    cra: [
+        { id: 'tir_precis', name: 'Tir Précis', pa: 3, power: [14, 22] },
+        { id: 'fleche_puissante', name: 'Flèche Puissante', pa: 5, power: [28, 42] }
+    ],
+    eni: [
+        { id: 'mot_interdit', name: 'Mot Interdit', pa: 3, power: [12, 18] },
+        { id: 'soin', name: 'Soin', pa: 3, power: [-18, -28] } // négatif = soin
+    ],
+    sadi: [
+        { id: 'ronces', name: 'Ronces', pa: 3, power: [15, 24] },
+        { id: 'puissance_veg', name: 'Puissance Végétale', pa: 4, power: [22, 32] }
+    ]
+};
+
+const MONSTER_SKILLS = [
+    { id: 'morsure', name: 'Morsure', power: [8, 14] },
+    { id: 'charge', name: 'Charge', power: [10, 18] }
+];
+
+function rand(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -41,8 +119,8 @@ app.use(express.static('public'));
 
 class GameWorld {
     constructor() {
-        this.width = 100;
-        this.height = 100;
+        this.width = 1000;
+        this.height = 1000;
         this.players = new Map();
         this.monsters = new Map();
         this.npcs = new Map();
@@ -52,27 +130,58 @@ class GameWorld {
         this.startGameLoop();
     }
 
+    
     generateTerrain() {
         const terrain = Array(this.height).fill().map(() => Array(this.width).fill(0));
+        const perlin = new Perlin(2025);
         
-        // Génération procédurale simplifiée
+        const scale = 48;           // taille des îlots
+        const octaves = 4;
+        const persistence = 0.5;
+        const lacunarity = 2.0;
+
+        const sample = (x, y) => {
+            let amp = 1, freq = 1, val = 0, norm = 0;
+            for (let o = 0; o < octaves; o++) {
+                val += amp * perlin.noise((x / scale) * freq, (y / scale) * freq);
+                norm += amp;
+                amp *= persistence;
+                freq *= lacunarity;
+            }
+            return val / norm; // ~ [-1,1]
+        };
+
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                const noise = this.simpleNoise(x * 0.1, y * 0.1);
-                
-                if (noise < -0.3) terrain[y][x] = 1; // Eau
-                else if (noise < -0.1) terrain[y][x] = 0; // Plaine
-                else if (noise < 0.2) terrain[y][x] = 2; // Forêt
-                else if (noise < 0.4) terrain[y][x] = 6; // Désert
-                else terrain[y][x] = 3; // Montagne
-                
-                // Structures spéciales
-                if (Math.random() < 0.001) terrain[y][x] = 4; // Village
-                if (Math.random() < 0.0005) terrain[y][x] = 5; // Donjon
+                const n = sample(x, y);
+
+                // biomes par seuils
+                let t = 0; // plaine par défaut
+                if (n < -0.25) t = 1;       // eau
+                else if (n < 0.05) t = 0;   // plaine
+                else if (n < 0.25) t = 2;   // forêt
+                else if (n < 0.48) t = 6;   // désert
+                else t = 3;                 // montagne
+
+                terrain[y][x] = t;
             }
         }
+
+        // épars villages/donjons sur tuiles walkables
+        for (let i = 0; i < Math.floor((this.width * this.height) / 8000); i++) {
+            const rx = Math.floor(Math.random() * this.width);
+            const ry = Math.floor(Math.random() * this.height);
+            if (terrain[ry][rx] !== 1 && terrain[ry][rx] !== 3) terrain[ry][rx] = 4; // village
+        }
+        for (let i = 0; i < Math.floor((this.width * this.height) / 12000); i++) {
+            const rx = Math.floor(Math.random() * this.width);
+            const ry = Math.floor(Math.random() * this.height);
+            if (terrain[ry][rx] !== 1 && terrain[ry][rx] !== 3) terrain[ry][rx] = 5; // donjon
+        }
+
         return terrain;
     }
+    
 
     simpleNoise(x, y) {
         // Implémentation simple du bruit
@@ -88,7 +197,7 @@ class GameWorld {
         return { x, y };
     }
     initMonsters() {
-        for (let i = 0; i < 250; i++) {
+        for (let i = 0; i < 2000; i++) {
             const { x, y } = this.findSafeSpawn();
             const monster = new Monster(`monster_${i}`, x, y, Math.floor(Math.random() * 10) + 1);
             this.monsters.set(monster.id, monster);
@@ -112,7 +221,8 @@ class GameWorld {
                 const newX = Math.max(0, Math.min(this.width-1, monster.x + dx));
                 const newY = Math.max(0, Math.min(this.height-1, monster.y + dy));
                 
-                if (this.isWalkable(newX, newY)) {
+                const playerOnTile = Array.from(this.players.values()).some(p => p.x === newX && p.y === newY);
+                if (this.isWalkable(newX, newY) && !playerOnTile) {
                     monster.x = newX;
                     monster.y = newY;
                 }
@@ -127,7 +237,7 @@ class GameWorld {
             //     player.pm = 3;
             // }
             // Régénération PA
-            if (player.pa < 6) {
+            if (!player.inCombat && player.pa < 6) {
                 player.pa = 6;
             }
         });
@@ -139,13 +249,49 @@ class GameWorld {
         return terrainType !== 1 && terrainType !== 3; // Pas eau ni montagne
     }
 
+
+    getChunk(centerX, centerY, w = 64, h = 64) {
+        const halfW = Math.floor(w / 2);
+        const halfH = Math.floor(h / 2);
+        const x0 = Math.max(0, Math.min(this.width - w, centerX - halfW));
+        const y0 = Math.max(0, Math.min(this.height - h, centerY - halfH));
+        const tiles = [];
+        for (let y = 0; y < h; y++) {
+            const row = new Array(w);
+            for (let x = 0; x < w; x++) {
+                row[x] = this.terrain[y0 + y][x0 + x];
+            }
+            tiles.push(row);
+        }
+        return { x0, y0, width: w, height: h, tiles };
+    }
+
     broadcastWorldState() {
-        const worldData = {
-            players: Array.from(this.players.values()).map(p => p.getPublicData()),
-            monsters: Array.from(this.monsters.values()).map(m => m.getPublicData()),
-            timestamp: Date.now()
-        };
-        io.emit('worldUpdate', worldData);
+        
+        const allPlayers = Array.from(this.players.values());
+        const allMonsters = Array.from(this.monsters.values());
+        const now = Date.now();
+        const VIEW = 25; // rayon de vision en cases
+        
+        for (const p of allPlayers) {
+            const sock = io.sockets.sockets.get(p.socketId);
+            if (!sock) continue;
+            
+            const localPlayers = allPlayers
+                .filter(o => Math.abs(o.x - p.x) <= VIEW && Math.abs(o.y - p.y) <= VIEW)
+                .map(o => o.getPublicData());
+            
+            const localMonsters = allMonsters
+                .filter(m => Math.abs(m.x - p.x) <= VIEW && Math.abs(m.y - p.y) <= VIEW)
+                .slice(0, 300) // cap de sécurité
+                .map(m => m.getPublicData());
+            
+            sock.emit('worldUpdate', {
+                players: localPlayers,
+                monsters: localMonsters,
+                timestamp: now
+            });
+        }
     }
 }
 
@@ -163,6 +309,9 @@ class Player {
         this.pa = 6;
         this.pm = 3;
         this.kamas = 1000;
+        this.skills = (SKILLS[this.classe] || [{ id:'basic', name:'Attaque', pa:2, power:[8,12] }]);
+        this.currentTarget = null;
+        this.isDead = false;
         this.inventory = new Map();
         this.equipment = {};
         this.inCombat = false;
@@ -188,12 +337,13 @@ class Player {
             maxHp: this.maxHp,
             pa: this.pa,
             pm: this.pm,
-            inCombat: this.inCombat
+            inCombat: this.inCombat,
+            isDead: this.isDead
         };
     }
 
     move(dx, dy) {
-        if (this.inCombat) return false;
+        if (this.inCombat || this.isDead) return false;
         
         const newX = this.x + dx;
         const newY = this.y + dy;
@@ -217,11 +367,23 @@ class Player {
         });
     }
 
+    
     startCombat(monster) {
         this.inCombat = true;
         monster.inCombat = true;
-        // TODO: Implémenter la logique de combat complète
+        this.pa = 6;
+        this.currentTarget = monster.id;
+        const sock = io.sockets.sockets.get(this.socketId);
+        if (sock) {
+            sock.emit('combatStarted', {
+                player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
+                monster: monster.getPublicData(),
+                skills: this.skills,
+                turn: 'player'
+            });
+        }
     }
+    
 }
 
 class Monster {
@@ -250,7 +412,8 @@ class Monster {
             type: this.type,
             hp: this.hp,
             maxHp: this.maxHp,
-            inCombat: this.inCombat
+            inCombat: this.inCombat,
+            isDead: this.isDead
         };
     }
 }
@@ -441,9 +604,9 @@ io.on('connection', (socket) => {
                 socket.emit('authSuccess', {
                     player: player.getPublicData(),
                     worldData: {
-                        terrain: gameWorld.terrain,
                         width: gameWorld.width,
-                        height: gameWorld.height
+                        height: gameWorld.height,
+                        chunk: gameWorld.getChunk(player.x, player.y, 64, 64)
                     }
                 });
 
@@ -547,7 +710,105 @@ io.on('connection', (socket) => {
     });
 
 
+    // Chunk request (lazy terrain loading)
+    socket.on('requestChunk', ({ centerX, centerY, width, height }) => {
+        const w = Math.max(16, Math.min(128, width || 64));
+        const h = Math.max(16, Math.min(128, height || 64));
+        const chunk = gameWorld.getChunk(Math.floor(centerX || 0), Math.floor(centerY || 0), w, h);
+        socket.emit('chunk', { chunk });
+    });
+
     // Chat
+    
+    // Utilisation d'une compétence (tour par tour)
+    socket.on('useSkill', async ({ targetId, skillId }) => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player || !player.inCombat) return;
+
+        const target = gameWorld.monsters.get(targetId);
+        if (!target || !target.inCombat) return;
+
+        const skill = (player.skills || []).find(s => s.id === skillId) || { id:'basic', name:'Attaque', pa:2, power:[8,12] };
+        if ((player.pa || 0) < (skill.pa || 0)) return;
+
+        // Player action
+        player.pa -= (skill.pa || 0);
+        let dmg = rand(skill.power[0], skill.power[1]) + Math.floor(player.level * 2);
+        if (dmg < 0) {
+            // heal
+            player.hp = Math.min(player.maxHp, player.hp + (Math.abs(dmg)));
+        } else {
+            target.hp = Math.max(0, target.hp - dmg);
+        }
+
+        let logs = [];
+        logs.push({ side: 'player', text: dmg < 0 ? `${player.username} se soigne de ${Math.abs(dmg)} PV.` : `${player.username} utilise ${skill.name} et inflige ${dmg} dégâts.` });
+
+        // Check kill
+        if (target.hp <= 0) {
+            // Rewards
+            const xpGain = target.level * 10;
+            const kamasGain = target.level * 5;
+            player.xp += xpGain;
+            player.kamas += kamasGain;
+
+            // Level up (boucle)
+            while (player.xp >= player.level * 100) {
+                player.xp -= player.level * 100;
+                player.level++;
+                player.maxHp = player.getMaxHp();
+                player.hp = Math.min(player.hp, player.maxHp);
+            }
+
+            await saveCharacter(player);
+
+            // End combat
+            player.inCombat = false;
+            target.inCombat = false;
+            gameWorld.monsters.delete(targetId);
+
+            io.to(socket.id).emit('combatEnded', {
+                message: `Tu as vaincu ${target.type} ! +${xpGain} XP, +${kamasGain} kamas.`,
+                player: { xp: player.xp, level: player.level, hp: player.hp, maxHp: player.maxHp, kamas: player.kamas }
+            });
+
+            // Respawn monster later
+            setTimeout(() => {
+                const spawn = gameWorld.findSafeSpawn ? gameWorld.findSafeSpawn() : { x: rand(0, gameWorld.width-1), y: rand(0, gameWorld.height-1) };
+                const newMonster = new Monster(targetId, spawn.x, spawn.y, target.level);
+                gameWorld.monsters.set(targetId, newMonster);
+            }, 30000);
+            return;
+        }
+
+        // Monster turn (simple AI)
+        const mSkill = pick(MONSTER_SKILLS);
+        let mDmg = rand(mSkill.power[0], mSkill.power[1]) + Math.floor(target.level * 1.5);
+        player.hp = Math.max(0, player.hp - mDmg);
+
+        logs.push({ side: 'monster', text: `${target.type} utilise ${mSkill.name} et inflige ${mDmg} dégâts.` });
+
+        if (player.hp > 0) {
+            // Regen PA au prochain tour du joueur
+            player.pa = 6;
+            io.to(socket.id).emit('combatUpdate', {
+                player: { hp: player.hp, pa: player.pa },
+                monster: target.getPublicData(),
+                turn: 'player',
+                log: logs
+            });
+        } else {
+            // Joueur K.O.
+            player.inCombat = false;
+            target.inCombat = false;
+            player.isDead = true;
+            await saveCharacter(player);
+            io.to(socket.id).emit('playerDied', { respawnIn: 8000 });
+            setTimeout(() => { respawnPlayer(player, socket.id); }, 8000);
+        }
+    });
+
+
     socket.on('chat', (message) => {
         const player = gameWorld.players.get(socket.userId);
         if (!player || !message || message.length > 200) return;
@@ -563,12 +824,13 @@ io.on('connection', (socket) => {
     });
 
     // Se reposer
-    socket.on('rest', () => {
+    socket.on('rest', async () => {
         const player = gameWorld.players.get(socket.userId);
-        if (!player || player.inCombat) return;
+        if (!player || player.inCombat || player.isDead) return;
 
         player.hp = Math.min(player.hp + 20, player.maxHp);
         socket.emit('restResult', { hp: player.hp, maxHp: player.maxHp });
+        await saveCharacter(player);
     });
 
     // Déconnexion
@@ -634,6 +896,20 @@ async function saveCharacterPosition(player) {
         );
     } catch (error) {
         console.error('Erreur sauvegarde position:', error);
+    }
+}
+
+async function respawnPlayer(player, socketId) {
+    const spawn = gameWorld.findSafeSpawn ? gameWorld.findSafeSpawn() : { x: 50, y: 50 };
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.hp = player.maxHp;
+    player.pa = 6;
+    player.inCombat = false;
+    player.isDead = false;
+    await saveCharacter(player);
+    if (socketId) {
+        io.to(socketId).emit('respawn', { player: player.getPublicData() });
     }
 }
 

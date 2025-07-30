@@ -6,7 +6,9 @@ import React, { useRef, useEffect, useState } from 'react';
 const TILE_SIZE = 32;
 const VIEWPORT_WIDTH = 25;
 const VIEWPORT_HEIGHT = 19;
-
+const CHUNK_W = 64;
+const CHUNK_H = 64;
+const CHUNK_MARGIN = 8; // demande un nouveau chunk quand on approche du bord
 // Couleurs des terrains
 const TERRAIN_COLORS = {
     0: '#8B4513', // Plaine - marron
@@ -26,10 +28,36 @@ const CLASS_EMOJIS = {
     sadi: '🟤'
 };
 
-function GameCanvas({ gameState, onTargetSelect }) {
+function GameCanvas({ gameState, onTargetSelect, socket }) {
     const canvasRef = useRef(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [hoveredTile, setHoveredTile] = useState(null);
+    // Helper: retourne le type de terrain (x,y absolus) depuis le chunk courant
+    const getTile = (x, y) => {
+        const wd = gameState.worldData;
+        if (!wd || !wd.chunk) return 0;
+        const { x0, y0, width, height, tiles } = wd.chunk;
+        if (x < x0 || y < y0 || x >= x0 + width || y >= y0 + height) return 0;
+        return tiles[y - y0][x - x0];
+    };
+
+    // Demande un nouveau chunk quand on approche du bord
+    useEffect(() => {
+        const wd = gameState.worldData;
+        const p = gameState.player;
+        if (!socket || !wd || !wd.chunk || !p) return;
+
+        const { x0, y0, width, height } = wd.chunk;
+        const nearLeft = (p.x - x0) < CHUNK_MARGIN;
+        const nearRight = (x0 + width - 1 - p.x) < CHUNK_MARGIN;
+        const nearTop = (p.y - y0) < CHUNK_MARGIN;
+        const nearBottom = (y0 + height - 1 - p.y) < CHUNK_MARGIN;
+
+        if (nearLeft || nearRight || nearTop || nearBottom) {
+            socket.emit('requestChunk', { centerX: p.x, centerY: p.y, width: CHUNK_W, height: CHUNK_H });
+        }
+    }, [gameState.player?.x, gameState.player?.y, gameState.worldData?.chunk, socket]);
+
 
     useEffect(() => {
         if (!gameState.player || !gameState.worldData) return;
@@ -62,7 +90,7 @@ function GameCanvas({ gameState, onTargetSelect }) {
             for (let x = startX; x < endX; x++) {
                 const screenX = (x - startX) * TILE_SIZE;
                 const screenY = (y - startY) * TILE_SIZE;
-                const terrainType = worldData.terrain[y][x];
+                const terrainType = getTile(x, y);
 
                 // Couleur de base
                 ctx.fillStyle = TERRAIN_COLORS[terrainType] || '#8B4513';
@@ -215,56 +243,48 @@ function GameCanvas({ gameState, onTargetSelect }) {
         drawPlayerInfo(ctx);
     };
 
+    
     const drawMinimap = (ctx) => {
         const minimapSize = 120;
         const minimapX = canvasRef.current.width - minimapSize - 10;
-        const minimapY = 10;
+        const minimapY = 20;
 
-        // Fond de la minimap
+        // Fond et bordure
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(minimapX, minimapY, minimapSize, minimapSize);
         ctx.strokeStyle = '#FFFFFF';
         ctx.strokeRect(minimapX, minimapY, minimapSize, minimapSize);
 
-        if (!gameState.worldData) return;
+        const wd = gameState.worldData;
+        if (!wd || !wd.width || !wd.height) return;
 
-        const scale = minimapSize / Math.max(gameState.worldData.width, gameState.worldData.height);
+        const scale = minimapSize / Math.max(wd.width, wd.height);
 
-        // Terrain simplifié
-        for (let y = 0; y < gameState.worldData.height; y += 2) {
-            for (let x = 0; x < gameState.worldData.width; x += 2) {
-                const pixelX = minimapX + x * scale;
-                const pixelY = minimapY + y * scale;
-                const terrainType = gameState.worldData.terrain[y][x];
-                
-                ctx.fillStyle = TERRAIN_COLORS[terrainType] || '#8B4513';
-                ctx.fillRect(pixelX, pixelY, scale * 2, scale * 2);
-            }
-        }
+        // (Perf) On ne dessine plus le terrain entier ici.
+        // On se contente d'afficher la position du joueur et des autres joueurs.
 
-        // Position du joueur
+        // Joueur
         if (gameState.player) {
-            const playerX = minimapX + gameState.player.x * scale;
-            const playerY = minimapY + gameState.player.y * scale;
-            
+            const px = minimapX + gameState.player.x * scale;
+            const py = minimapY + gameState.player.y * scale;
             ctx.fillStyle = '#FFD700';
             ctx.beginPath();
-            ctx.arc(playerX, playerY, 3, 0, 2 * Math.PI);
+            ctx.arc(px, py, 3, 0, 2 * Math.PI);
             ctx.fill();
         }
 
         // Autres joueurs
-        gameState.players.forEach(player => {
-            if (player.userId === gameState.player.userId) return;
-            
-            const playerX = minimapX + player.x * scale;
-            const playerY = minimapY + player.y * scale;
-            
-            ctx.fillStyle = '#00FF00';
-            ctx.beginPath();
-            ctx.arc(playerX, playerY, 2, 0, 2 * Math.PI);
-            ctx.fill();
-        });
+        if (Array.isArray(gameState.players)) {
+            gameState.players.forEach(ply => {
+                if (!gameState.player || ply.userId === gameState.player.userId) return;
+                const px = minimapX + ply.x * scale;
+                const py = minimapY + ply.y * scale;
+                ctx.fillStyle = '#00FF00';
+                ctx.beginPath();
+                ctx.arc(px, py, 2, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
     };
 
     const drawPlayerInfo = (ctx) => {
