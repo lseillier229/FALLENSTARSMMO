@@ -1,0 +1,49 @@
+/* ========================
+   GAME.CSS - Interface de jeu principale
+   ======================== */
+
+.game-container {
+    height: 100vh;
+    background: #1a1a1a;
+    position: relative;
+    overflow: hidden;
+}
+
+.game-loading {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+}
+
+.game-canvas-container {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: radial-gradient(ellipse at center, #2c3e50 0%, #1a252f 100%);
+}
+
+.controls-overlay {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 10px;
+    padding: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.controls-help p {
+    margin: 0;
+    color: #ffffff;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.controls-help strong {
+    color: #ffd700;
+}
