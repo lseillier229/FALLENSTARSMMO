@@ -2,10 +2,10 @@
 // APP.JS - Composant principal
 // ========================
 import React, { useState, useEffect } from 'react';
-import Login from './components/Login';
-import Game from './components/Game';
-import CharacterCreation from './components/CharacterCreation';
-import './App.css';
+import Login from './components/login';
+import Game from './components/game';
+import CharacterCreation from './components/charactercreation';
+import './app.css';
 
 function App() {
     const [user, setUser] = useState(null);

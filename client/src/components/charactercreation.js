@@ -2,7 +2,7 @@
 // COMPONENTS/CHARACTERCREATION.JS
 // ========================
 import React, { useState } from 'react';
-import './CharacterCreation.css';
+import './charactercreation.css';
 
 const CLASSES = {
     iop: { name: 'Iop', emoji: '⚔️', description: 'Guerrier puissant, spécialisé dans les combats au corps à corps' },

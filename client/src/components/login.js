@@ -2,7 +2,7 @@
 // COMPONENTS/LOGIN.JS
 // ========================
 import React, { useState } from 'react';
-import './Login.css';
+import './login.css';
 
 function Login({ onLogin }) {
     const [isRegistering, setIsRegistering] = useState(false);
@@ -48,7 +48,7 @@ function Login({ onLogin }) {
         <div className="login-container">
             <div className="login-card">
                 <div className="login-header">
-                    <h1>🎮 Dofus MMO</h1>
+                    <h1>🎮 FALLEN STARS MMO</h1>
                     <p>Connecte-toi pour commencer l'aventure</p>
                 </div>
 

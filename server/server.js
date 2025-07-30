@@ -22,9 +22,9 @@ const io = socketIo(server, {
 // Configuration base de données
 const db = new Pool({
     host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'dofus_mmo',
+    database: process.env.DB_NAME || 'dofus_mmo_local',
     user: process.env.DB_USER || 'dofus_user',
-    password: process.env.DB_PASSWORD || 'your_password',
+    password: process.env.DB_PASSWORD || 'password123',
     port: process.env.DB_PORT || 5432,
 });
 
@@ -79,17 +79,21 @@ class GameWorld {
         return Math.sin(x * 0.3) * Math.cos(y * 0.3) + 
                Math.sin(x * 0.1) * Math.cos(y * 0.1) * 0.5;
     }
-
+    findSafeSpawn() {
+        let x, y;
+        do {
+            x = Math.floor(Math.random() * this.width);
+            y = Math.floor(Math.random() * this.height);
+        } while (!this.isWalkable(x, y));
+        return { x, y };
+    }
     initMonsters() {
-        for (let i = 0; i < 500; i++) {
-            const monster = new Monster(
-                `monster_${i}`,
-                Math.floor(Math.random() * this.width),
-                Math.floor(Math.random() * this.height),
-                Math.floor(Math.random() * 10) + 1
-            );
+        for (let i = 0; i < 250; i++) {
+            const { x, y } = this.findSafeSpawn();
+            const monster = new Monster(`monster_${i}`, x, y, Math.floor(Math.random() * 10) + 1);
             this.monsters.set(monster.id, monster);
         }
+
     }
 
     startGameLoop() {
@@ -119,9 +123,9 @@ class GameWorld {
     regeneratePlayers() {
         this.players.forEach(player => {
             // Régénération PM
-            if (player.pm < 3) {
-                player.pm = 3;
-            }
+            // if (player.pm < 3) {
+            //     player.pm = 3;
+            // }
             // Régénération PA
             if (player.pa < 6) {
                 player.pa = 6;
@@ -189,7 +193,7 @@ class Player {
     }
 
     move(dx, dy) {
-        if (this.pm <= 0 || this.inCombat) return false;
+        if (this.inCombat) return false;
         
         const newX = this.x + dx;
         const newY = this.y + dy;
@@ -197,7 +201,7 @@ class Player {
         if (gameWorld.isWalkable(newX, newY)) {
             this.x = newX;
             this.y = newY;
-            this.pm--;
+            // this.pm--;
             this.checkForEncounters();
             return true;
         }
@@ -431,7 +435,7 @@ io.on('connection', (socket) => {
                 player.hp = character.hp;
                 player.kamas = character.kamas;
                 player.socketId = socket.id;
-
+                player.hp = Math.min(character.hp, player.maxHp);
                 gameWorld.players.set(socket.userId, player);
                 
                 socket.emit('authSuccess', {
@@ -481,59 +485,67 @@ io.on('connection', (socket) => {
     // Action d'attaque
     socket.on('attack', (targetId) => {
         const player = gameWorld.players.get(socket.userId);
-        if (!player || player.pa < 3) return;
+        if (!player || player.pa < 3 || !player.inCombat) return;
 
         const target = gameWorld.monsters.get(targetId);
-        if (target && Math.abs(target.x - player.x) <= 1 && Math.abs(target.y - player.y) <= 1) {
-            // Calcul des dégâts
-            const damage = Math.floor(Math.random() * 30) + 10 + player.level * 2;
-            target.hp -= damage;
-            player.pa -= 3;
+        if (!target || !target.inCombat) return;
 
-            socket.emit('attackResult', { 
-                damage, 
-                targetHp: target.hp,
-                pa: player.pa 
+        const inRange = Math.abs(target.x - player.x) <= 1 && Math.abs(target.y - player.y) <= 1;
+        if (!inRange) return;
+
+        const damage = Math.floor(Math.random() * 30) + 10 + player.level * 2;
+        target.hp -= damage;
+        player.pa -= 3;
+
+        socket.emit('attackResult', {
+            damage,
+            targetHp: target.hp,
+            pa: player.pa
+        });
+
+        if (target.hp <= 0) {
+            gameWorld.monsters.delete(targetId);
+
+            const xpGain = target.level * 10;
+            const kamasGain = target.level * 5;
+            player.xp += xpGain;
+            player.kamas += kamasGain;
+
+            const xpNeeded = player.level * 100;
+            while (player.xp >= player.level * 100) {
+                player.xp -= player.level * 100;
+                player.level++;
+                player.maxHp = player.getMaxHp();
+                player.hp = Math.min(player.hp, player.maxHp);
+            }
+
+
+            // Fin de combat
+            player.inCombat = false;
+            target.inCombat = false;
+            saveCharacter(player);
+
+            socket.emit('monsterKilled', {
+                xp: player.xp,
+                kamas: player.kamas,
+                level: player.level,
+                xpGain,
+                kamasGain
             });
 
-            if (target.hp <= 0) {
-                // Monstre tué
-                gameWorld.monsters.delete(targetId);
-                const xpGain = target.level * 10;
-                const kamasGain = target.level * 5;
-                player.xp += xpGain;
-                player.kamas += kamasGain;
-                
-                // Vérifier level up
-                const xpNeeded = player.level * 100;
-                if (player.xp >= xpNeeded) {
-                    player.level++;
-                    player.xp -= xpNeeded;
-                    player.maxHp = player.getMaxHp();
-                    player.hp = player.maxHp;
-                }
-
-                socket.emit('monsterKilled', { 
-                    xp: player.xp, 
-                    kamas: player.kamas,
-                    level: player.level,
-                    xpGain,
-                    kamasGain
-                });
-
-                // Respawn du monstre après 30 secondes
-                setTimeout(() => {
-                    const newMonster = new Monster(
-                        targetId,
-                        Math.floor(Math.random() * gameWorld.width),
-                        Math.floor(Math.random() * gameWorld.height),
-                        target.level
-                    );
-                    gameWorld.monsters.set(targetId, newMonster);
-                }, 30000);
-            }
+            // Respawn
+            setTimeout(() => {
+                const newMonster = new Monster(
+                    targetId,
+                    Math.floor(Math.random() * gameWorld.width),
+                    Math.floor(Math.random() * gameWorld.height),
+                    target.level
+                );
+                gameWorld.monsters.set(targetId, newMonster);
+            }, 30000);
         }
     });
+
 
     // Chat
     socket.on('chat', (message) => {

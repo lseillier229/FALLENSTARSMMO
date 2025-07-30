@@ -1,6 +1,27 @@
 /* ========================
    UI.CSS - Interface utilisateur
    ======================== */
+.progress-bar {
+    height: 10px;
+    width: 100%;
+    background-color: #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.progress-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.progress-fill.xp {
+    background-color: #ffc107; /* jaune pour XP */
+}
+
+.progress-fill.hp {
+    background-color: #dc3545; /* rouge pour HP */
+}
 
 .ui-overlay {
     position: fixed;

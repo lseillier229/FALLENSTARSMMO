@@ -2,7 +2,7 @@
 // COMPONENTS/UI.JS - Interface utilisateur
 // ========================
 import React, { useState } from 'react';
-import './UI.css';
+import './ui.css';
 
 function UI({ gameState, socket, onTargetSelect }) {
     const [chatInput, setChatInput] = useState('');
@@ -118,11 +118,28 @@ function UI({ gameState, socket, onTargetSelect }) {
                             </div>
                             <div className="stat-item">
                                 <span className="stat-label">Expérience:</span>
-                                <span className="stat-value">{gameState.player.xp || 0}/100</span>
+                                <span className="stat-value">
+                                    {(gameState.player.xp || 0)}/{gameState.player.level * 100}
+
+                                </span>
+                                <div className="progress-bar">
+                                    <div
+                                        className="progress-fill xp"
+                                        style={{ width: `${(gameState.player.xp / (gameState.player.level * 100)) * 100}%` }}
+                                    ></div>
+                                </div>
                             </div>
                             <div className="stat-item">
                                 <span className="stat-label">Points de Vie:</span>
-                                <span className="stat-value">{gameState.player.hp}/{gameState.player.maxHp}</span>
+                                <span className="stat-value">
+                                    {gameState.player.hp}/{gameState.player.maxHp}
+                                </span>
+                                <div className="progress-bar">
+                                    <div
+                                        className="progress-fill hp"
+                                        style={{ width: `${(gameState.player.hp / gameState.player.maxHp) * 100}%` }}
+                                    ></div>
+                                </div>
                             </div>
                             <div className="stat-item">
                                 <span className="stat-label">Kamas:</span>

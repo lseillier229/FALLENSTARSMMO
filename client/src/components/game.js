@@ -3,9 +3,9 @@
 // ========================
 import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
-import GameCanvas from './GameCanvas';
-import UI from './UI';
-import './Game.css';
+import GameCanvas from './gamecanvas';
+import UI from './ui';
+import './game.css';
 
 function Game({ user }) {
     const [socket, setSocket] = useState(null);
@@ -104,9 +104,9 @@ function Game({ user }) {
                 'ArrowDown': 'down',
                 'ArrowLeft': 'left',
                 'ArrowRight': 'right',
-                'w': 'up',
+                'z': 'up',
                 's': 'down',
-                'a': 'left',
+                'q': 'left',
                 'd': 'right'
             };
 
