@@ -42,13 +42,16 @@ function App() {
         return (
             <div className="loading-screen">
                 <div className="loading-spinner"></div>
-                <h2>🎮 Chargement de Dofus MMO...</h2>
+                <h2>🎮 Chargement de FallenStars MMO...</h2>
             </div>
         );
     }
 
     if (!user) {
-        return <Login onLogin={setUser} />;
+        return <Login onLogin={(userData) => {
+            setUser(userData);
+            setHasCharacter(false);
+        }} />;
     }
 
     if (!hasCharacter) {
@@ -59,11 +62,3 @@ function App() {
 }
 
 export default App;
-
-
-
-
-
-
-
-

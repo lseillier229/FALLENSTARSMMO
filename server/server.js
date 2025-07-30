@@ -8,8 +8,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
-const Redis = require('redis');
-const Discord = require('discord.js');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
@@ -22,25 +21,19 @@ const io = socketIo(server, {
 
 // Configuration base de données
 const db = new Pool({
-    host: 'localhost',
-    database: 'dofus_mmo',
-    user: 'dofus_user',
-    password: 'your_password',
-    port: 5432,
+    host: process.env.DB_HOST || 'localhost',
+    database: process.env.DB_NAME || 'dofus_mmo',
+    user: process.env.DB_USER || 'dofus_user',
+    password: process.env.DB_PASSWORD || 'your_password',
+    port: process.env.DB_PORT || 5432,
 });
 
-const redis = Redis.createClient();
-const JWT_SECRET = 'your_super_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key_change_this_in_production';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
-
-// Configuration Discord Bot
-const discordBot = new Discord.Client({ 
-    intents: [Discord.GatewayIntentBits.Guilds, Discord.GatewayIntentBits.GuildMessages] 
-});
 
 // ========================
 // CLASSES & GAME LOGIC
@@ -62,10 +55,10 @@ class GameWorld {
     generateTerrain() {
         const terrain = Array(this.height).fill().map(() => Array(this.width).fill(0));
         
-        // Génération procédurale avancée
+        // Génération procédurale simplifiée
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                const noise = this.perlinNoise(x * 0.1, y * 0.1);
+                const noise = this.simpleNoise(x * 0.1, y * 0.1);
                 
                 if (noise < -0.3) terrain[y][x] = 1; // Eau
                 else if (noise < -0.1) terrain[y][x] = 0; // Plaine
@@ -81,8 +74,8 @@ class GameWorld {
         return terrain;
     }
 
-    perlinNoise(x, y) {
-        // Implémentation simple du bruit de Perlin
+    simpleNoise(x, y) {
+        // Implémentation simple du bruit
         return Math.sin(x * 0.3) * Math.cos(y * 0.3) + 
                Math.sin(x * 0.1) * Math.cos(y * 0.1) * 0.5;
     }
@@ -102,14 +95,14 @@ class GameWorld {
     startGameLoop() {
         setInterval(() => {
             this.updateMonsters();
-            this.updateCombats();
+            this.regeneratePlayers();
             this.broadcastWorldState();
-        }, 1000); // 1 FPS pour les updates serveur
+        }, 1000); // 1 update par seconde
     }
 
     updateMonsters() {
         this.monsters.forEach(monster => {
-            if (Math.random() < 0.1) { // 10% chance de bouger
+            if (Math.random() < 0.1 && !monster.inCombat) { // 10% chance de bouger
                 const directions = [[-1,0], [1,0], [0,-1], [0,1]];
                 const [dx, dy] = directions[Math.floor(Math.random() * 4)];
                 const newX = Math.max(0, Math.min(this.width-1, monster.x + dx));
@@ -123,7 +116,21 @@ class GameWorld {
         });
     }
 
+    regeneratePlayers() {
+        this.players.forEach(player => {
+            // Régénération PM
+            if (player.pm < 3) {
+                player.pm = 3;
+            }
+            // Régénération PA
+            if (player.pa < 6) {
+                player.pa = 6;
+            }
+        });
+    }
+
     isWalkable(x, y) {
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return false;
         const terrainType = this.terrain[y][x];
         return terrainType !== 1 && terrainType !== 3; // Pas eau ni montagne
     }
@@ -147,7 +154,8 @@ class Player {
         this.y = y;
         this.level = 1;
         this.xp = 0;
-        this.hp = this.getMaxHp();
+        this.maxHp = this.getMaxHp();
+        this.hp = this.maxHp;
         this.pa = 6;
         this.pm = 3;
         this.kamas = 1000;
@@ -173,7 +181,9 @@ class Player {
             x: this.x, y: this.y,
             level: this.level,
             hp: this.hp,
-            maxHp: this.getMaxHp(),
+            maxHp: this.maxHp,
+            pa: this.pa,
+            pm: this.pm,
             inCombat: this.inCombat
         };
     }
@@ -181,8 +191,8 @@ class Player {
     move(dx, dy) {
         if (this.pm <= 0 || this.inCombat) return false;
         
-        const newX = Math.max(0, Math.min(gameWorld.width-1, this.x + dx));
-        const newY = Math.max(0, Math.min(gameWorld.height-1, this.y + dy));
+        const newX = this.x + dx;
+        const newY = this.y + dy;
         
         if (gameWorld.isWalkable(newX, newY)) {
             this.x = newX;
@@ -197,7 +207,7 @@ class Player {
     checkForEncounters() {
         // Vérifier les monstres à proximité
         gameWorld.monsters.forEach(monster => {
-            if (monster.x === this.x && monster.y === this.y) {
+            if (monster.x === this.x && monster.y === this.y && !monster.inCombat) {
                 this.startCombat(monster);
             }
         });
@@ -206,7 +216,7 @@ class Player {
     startCombat(monster) {
         this.inCombat = true;
         monster.inCombat = true;
-        // Logique de combat...
+        // TODO: Implémenter la logique de combat complète
     }
 }
 
@@ -216,8 +226,8 @@ class Monster {
         this.x = x;
         this.y = y;
         this.level = level;
-        this.hp = level * 50;
-        this.maxHp = this.hp;
+        this.maxHp = level * 50;
+        this.hp = this.maxHp;
         this.type = this.getRandomType();
         this.inCombat = false;
         this.lastMove = Date.now();
@@ -245,11 +255,30 @@ class Monster {
 // ROUTES API
 // ========================
 
+// Vérification du token
+app.get('/api/verify-token', authenticateToken, async (req, res) => {
+    try {
+        const hasCharacter = await checkIfHasCharacter(req.user.userId);
+        res.json({ 
+            valid: true, 
+            user: { userId: req.user.userId, username: req.user.username },
+            hasCharacter 
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 // Inscription
 app.post('/api/register', async (req, res) => {
     try {
         const { username, password, email, discordId } = req.body;
         
+        // Validation des entrées
+        if (!username || !password || !email) {
+            return res.status(400).json({ error: 'Tous les champs sont requis' });
+        }
+
         // Vérifier si l'utilisateur existe
         const existing = await db.query(
             'SELECT id FROM users WHERE username = $1 OR email = $2',
@@ -265,8 +294,8 @@ app.post('/api/register', async (req, res) => {
         
         // Créer l'utilisateur
         const result = await db.query(
-            'INSERT INTO users (username, password, email, discord_id) VALUES ($1, $2, $3, $4) RETURNING id',
-            [username, hashedPassword, email, discordId]
+            'INSERT INTO users (username, password, email, discord_id, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id',
+            [username, hashedPassword, email, discordId || null]
         );
 
         const token = jwt.sign(
@@ -275,8 +304,9 @@ app.post('/api/register', async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        res.json({ token, userId: result.rows[0].id });
+        res.json({ token, userId: result.rows[0].id, username });
     } catch (error) {
+        console.error('Erreur inscription:', error);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -310,6 +340,7 @@ app.post('/api/login', async (req, res) => {
 
         res.json({ token, userId: user.id, username: user.username });
     } catch (error) {
+        console.error('Erreur login:', error);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -319,6 +350,16 @@ app.post('/api/character/create', authenticateToken, async (req, res) => {
     try {
         const { name, classe } = req.body;
         const userId = req.user.userId;
+
+        // Validation
+        if (!name || !classe) {
+            return res.status(400).json({ error: 'Nom et classe requis' });
+        }
+
+        const validClasses = ['iop', 'cra', 'eni', 'sadi'];
+        if (!validClasses.includes(classe)) {
+            return res.status(400).json({ error: 'Classe invalide' });
+        }
 
         // Vérifier si l'utilisateur a déjà un personnage
         const existing = await db.query(
@@ -330,14 +371,17 @@ app.post('/api/character/create', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Personnage déjà existant' });
         }
 
+        const player = new Player(userId, name, classe);
+
         // Créer le personnage
         const result = await db.query(
-            'INSERT INTO characters (user_id, name, classe, x, y, level, xp, hp, pa, pm, kamas) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id',
-            [userId, name, classe, 50, 50, 1, 0, 150, 6, 3, 1000]
+            'INSERT INTO characters (user_id, name, classe, x, y, level, xp, hp, pa, pm, kamas, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id',
+            [userId, name, classe, player.x, player.y, player.level, player.xp, player.hp, player.pa, player.pm, player.kamas]
         );
 
-        res.json({ characterId: result.rows[0].id });
+        res.json({ characterId: result.rows[0].id, success: true });
     } catch (error) {
+        console.error('Erreur création personnage:', error);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -398,8 +442,12 @@ io.on('connection', (socket) => {
                         height: gameWorld.height
                     }
                 });
+
+                // Notifier les autres joueurs
+                socket.broadcast.emit('playerJoined', player.getPublicData());
             }
         } catch (error) {
+            console.error('Erreur auth socket:', error);
             socket.emit('authError', 'Token invalide');
         }
     });
@@ -420,9 +468,13 @@ io.on('connection', (socket) => {
         const moved = player.move(dx, dy);
         
         if (moved) {
-            socket.emit('moveSuccess', { x: player.x, y: player.y, pm: player.pm });
-            // Sauvegarder en BDD
-            saveCharacter(player);
+            socket.emit('moveSuccess', { 
+                x: player.x, 
+                y: player.y, 
+                pm: player.pm 
+            });
+            // Sauvegarder position
+            saveCharacterPosition(player);
         }
     });
 
@@ -433,20 +485,78 @@ io.on('connection', (socket) => {
 
         const target = gameWorld.monsters.get(targetId);
         if (target && Math.abs(target.x - player.x) <= 1 && Math.abs(target.y - player.y) <= 1) {
-            // Logique d'attaque
-            const damage = Math.floor(Math.random() * 30) + 10;
+            // Calcul des dégâts
+            const damage = Math.floor(Math.random() * 30) + 10 + player.level * 2;
             target.hp -= damage;
             player.pa -= 3;
 
-            socket.emit('attackResult', { damage, targetHp: target.hp });
+            socket.emit('attackResult', { 
+                damage, 
+                targetHp: target.hp,
+                pa: player.pa 
+            });
 
             if (target.hp <= 0) {
+                // Monstre tué
                 gameWorld.monsters.delete(targetId);
-                player.xp += target.level * 10;
-                player.kamas += target.level * 5;
-                socket.emit('monsterKilled', { xp: player.xp, kamas: player.kamas });
+                const xpGain = target.level * 10;
+                const kamasGain = target.level * 5;
+                player.xp += xpGain;
+                player.kamas += kamasGain;
+                
+                // Vérifier level up
+                const xpNeeded = player.level * 100;
+                if (player.xp >= xpNeeded) {
+                    player.level++;
+                    player.xp -= xpNeeded;
+                    player.maxHp = player.getMaxHp();
+                    player.hp = player.maxHp;
+                }
+
+                socket.emit('monsterKilled', { 
+                    xp: player.xp, 
+                    kamas: player.kamas,
+                    level: player.level,
+                    xpGain,
+                    kamasGain
+                });
+
+                // Respawn du monstre après 30 secondes
+                setTimeout(() => {
+                    const newMonster = new Monster(
+                        targetId,
+                        Math.floor(Math.random() * gameWorld.width),
+                        Math.floor(Math.random() * gameWorld.height),
+                        target.level
+                    );
+                    gameWorld.monsters.set(targetId, newMonster);
+                }, 30000);
             }
         }
+    });
+
+    // Chat
+    socket.on('chat', (message) => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player || !message || message.length > 200) return;
+
+        const chatMessage = {
+            type: 'player',
+            username: player.username,
+            text: message,
+            timestamp: Date.now()
+        };
+
+        io.emit('chatMessage', chatMessage);
+    });
+
+    // Se reposer
+    socket.on('rest', () => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player || player.inCombat) return;
+
+        player.hp = Math.min(player.hp + 20, player.maxHp);
+        socket.emit('restResult', { hp: player.hp, maxHp: player.maxHp });
     });
 
     // Déconnexion
@@ -456,6 +566,7 @@ io.on('connection', (socket) => {
             if (player) {
                 saveCharacter(player);
                 gameWorld.players.delete(socket.userId);
+                io.emit('playerLeft', { userId: socket.userId });
             }
         }
         console.log('Joueur déconnecté:', socket.id);
@@ -465,6 +576,19 @@ io.on('connection', (socket) => {
 // ========================
 // FONCTIONS UTILITAIRES
 // ========================
+
+async function checkIfHasCharacter(userId) {
+    try {
+        const result = await db.query(
+            'SELECT id FROM characters WHERE user_id = $1',
+            [userId]
+        );
+        return result.rows.length > 0;
+    } catch (error) {
+        console.error('Erreur check character:', error);
+        return false;
+    }
+}
 
 async function loadCharacter(userId) {
     try {
@@ -482,7 +606,7 @@ async function loadCharacter(userId) {
 async function saveCharacter(player) {
     try {
         await db.query(
-            'UPDATE characters SET x = $1, y = $2, level = $3, xp = $4, hp = $5, kamas = $6 WHERE user_id = $7',
+            'UPDATE characters SET x = $1, y = $2, level = $3, xp = $4, hp = $5, kamas = $6, updated_at = NOW() WHERE user_id = $7',
             [player.x, player.y, player.level, player.xp, player.hp, player.kamas, player.userId]
         );
     } catch (error) {
@@ -490,47 +614,14 @@ async function saveCharacter(player) {
     }
 }
 
-// ========================
-// DISCORD BOT INTÉGRATION
-// ========================
-
-discordBot.on('ready', () => {
-    console.log('Discord bot connecté!');
-});
-
-discordBot.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    
-    if (message.content.startsWith('!stats')) {
-        // Récupérer les stats du joueur depuis la BDD
-        const stats = await getPlayerStats(message.author.id);
-        if (stats) {
-            const embed = new Discord.EmbedBuilder()
-                .setTitle(`📊 Stats de ${stats.name}`)
-                .addFields(
-                    { name: 'Niveau', value: stats.level.toString(), inline: true },
-                    { name: 'XP', value: stats.xp.toString(), inline: true },
-                    { name: 'Kamas', value: stats.kamas.toString(), inline: true }
-                )
-                .setColor(0x00ff00);
-            
-            await message.reply({ embeds: [embed] });
-        } else {
-            await message.reply('Tu n\'as pas encore de personnage! Va sur le site pour en créer un.');
-        }
-    }
-});
-
-async function getPlayerStats(discordId) {
+async function saveCharacterPosition(player) {
     try {
-        const result = await db.query(`
-            SELECT c.* FROM characters c 
-            JOIN users u ON c.user_id = u.id 
-            WHERE u.discord_id = $1
-        `, [discordId]);
-        return result.rows[0] || null;
+        await db.query(
+            'UPDATE characters SET x = $1, y = $2, updated_at = NOW() WHERE user_id = $3',
+            [player.x, player.y, player.userId]
+        );
     } catch (error) {
-        return null;
+        console.error('Erreur sauvegarde position:', error);
     }
 }
 
@@ -540,20 +631,26 @@ async function getPlayerStats(discordId) {
 
 const gameWorld = new GameWorld();
 
+// Test de connexion à la base de données
+db.query('SELECT NOW()', (err, res) => {
+    if (err) {
+        console.error('❌ Erreur connexion base de données:', err);
+    } else {
+        console.log('✅ Base de données connectée');
+    }
+});
+
 // Démarrage du serveur
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🎮 Serveur Dofus MMO démarré sur le port ${PORT}`);
     console.log('🌍 Monde de jeu initialisé');
-    console.log('🤖 Connexion Discord bot...');
-    
-    // Démarrer le bot Discord
-    discordBot.login('TON_DISCORD_TOKEN');
+    console.log(`📊 ${gameWorld.monsters.size} monstres créés`);
 });
 
 // Gestion propre de l'arrêt
 process.on('SIGINT', async () => {
-    console.log('🛑 Arrêt du serveur...');
+    console.log('\n🛑 Arrêt du serveur...');
     
     // Sauvegarder tous les joueurs
     for (const player of gameWorld.players.values()) {
@@ -561,6 +658,6 @@ process.on('SIGINT', async () => {
     }
     
     await db.end();
-    await redis.quit();
+    console.log('✅ Serveur arrêté proprement');
     process.exit(0);
 });
