@@ -1,78 +1,141 @@
 // ========================
-// COMPONENTS/COMBATUI.JS - Barre de combat style Pokémon
+// COMPONENTS/COMBATUI.JS - Interface de combat (sprites atlas + sorts)
 // ========================
 import React from 'react';
 import './combat.css';
 
-export default function CombatUI({ combat, onUseSkill, onClose }) {
-  if (!combat?.active) return null;
+export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
+  if (!combat) return null;
 
   const { player, monster, skills, turn, log } = combat;
 
-  const percent = (num = 0, den = 1) => {
-  const d = Math.max(1, den);
-  const p = Math.round((num / d) * 100);
-  return Math.max(0, Math.min(100, p));
-};
-  
+  // helper pour pourcentages (corrigé)
+  const percent = (num, den) =>
+    Math.max(0, Math.min(100, Math.round((num / Math.max(1, den)) * 100)));
+
+  const canPlay = turn === 'player' && player && !player.isDead;
+  const skillsList = Array.isArray(skills) ? skills : [];
+
+  const handleUse = (skill) => {
+    if (!skill || !canPlay) return;
+    if ((player?.pa ?? 0) < (skill.pa ?? 0)) return;
+    if (typeof onUseSkill === 'function') onUseSkill(skill.id);
+  };
+
+  // Normalise les entrées du log : accepte string OU {side, text}
+  const normalizeLog = (entry) => {
+    if (typeof entry === 'string') return { side: 'system', text: entry };
+    if (entry && typeof entry === 'object') {
+      const side = entry.side || 'system';
+      const text = typeof entry.text === 'string' ? entry.text : String(entry.text ?? '');
+      return { side, text };
+    }
+    return { side: 'system', text: String(entry ?? '') };
+  };
+
   return (
     <div className="combat-bar">
-      <div className="combat-left">
-        <div className="sprite player-sprite" title={player?.classe || 'Player'} />
-        <div className="card">
-          <div className="row">
-            <div className="title">{player?.username}</div>
-            <div className="lvl">Lvl {player?.level}</div>
+      {/* Zone portraits */}
+      <div className="fighters">
+        <div className="fighter left">
+          <div
+            className={`sprite player-sprite ${player?.classe || ''}`}
+            title={player?.classe || 'Player'}
+          />
+          <div className="info">
+            <div className="name">{player?.username || 'Joueur'}</div>
+            <div className="bars">
+              <div className="bar hp">
+                <div
+                  className="fill"
+                  style={{ width: `${percent(player?.hp || 0, player?.maxHp || 1)}%` }}
+                />
+                <span className="label">
+                  HP {player?.hp ?? 0}/{player?.maxHp ?? 0}
+                </span>
+              </div>
+              <div className="bar pa">
+                <div className="fill" style={{ width: `${percent(player?.pa ?? 0, 6)}%` }} />
+                <span className="label">PA {player?.pa ?? 0}</span>
+              </div>
+            </div>
           </div>
-          <div className="meter hp">
-            <div style={{ width: `${percent(player?.hp || 0, player?.maxHp || 1)}%` }} />
+        </div>
+
+        <div className="fighter right">
+          <div
+            className={`sprite monster-sprite ${monster?.type || 'mob'}`}
+            title={monster?.type || 'Monstre'}
+          />
+          <div className="info">
+            <div className="name">
+              {monster?.type || 'Monstre'} {monster ? `(Lvl ${monster.level ?? '?'})` : ''}
+            </div>
+            <div className="bars">
+              <div className="bar hp">
+                <div
+                  className="fill"
+                  style={{ width: `${percent(monster?.hp || 0, monster?.maxHp || 1)}%` }}
+                />
+                <span className="label">
+                  HP {monster?.hp ?? 0}/{monster?.maxHp ?? 0}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="row mini"><span>HP</span><span>{player?.hp}/{player?.maxHp}</span></div>
-          <div className="meter pa">
-            <div style={{ width: `${percent(player?.pa || 0, 6)}%` }} />
-          </div>
-          <div className="row mini"><span>PA</span><span>{player?.pa}</span></div>
         </div>
       </div>
 
-      <div className="combat-middle">
-        <div className="skills">
-          {skills.map((s) => (
-            <button
-              key={s.id}
-              className="skill-btn"
-              disabled={turn !== 'player' || (player?.pa || 0) < (s.pa || 0)}
-              onClick={() => onUseSkill(s.id)}
-              title={`PA: ${s.pa || 0}`}
-            >
-              <div className="skill-name">{s.name}</div>
-              <div className="skill-sub">PA {s.pa || 0} • {s.power[0]}–{s.power[1]}</div>
-            </button>
-          ))}
-        </div>
-        <div className="log">
-          {log.slice(-5).map((l, idx) => (
-            <div key={idx} className={`log-line ${l.side}`}>{l.text}</div>
-          ))}
+      {/* Boutons de sorts (équipés) */}
+      <div className="skills-row">
+        {skillsList.length === 0 && (
+          <div className="hint">Aucun sort équipé. Ouvre 🧪 Sorts pour en choisir.</div>
+        )}
+
+        {skillsList.map((s) => (
+          <button
+            key={s.id}
+            className="skill-btn"
+            disabled={!canPlay || (player?.pa ?? 0) < s.pa}
+            onClick={() => handleUse(s)}
+            title={`PA ${s.pa} • ${Array.isArray(s.power) ? `${s.power[0]}–${s.power[1]}` : s.power}`}
+          >
+            <div className="skill-name">{s.name}</div>
+            <div className="skill-meta">PA {s.pa}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Actions secondaires */}
+      <div className="actions-row">
+        <button className="action" onClick={onFlee} disabled={!canPlay}>
+          🏃 Fuir
+        </button>
+        <button
+          className="action"
+          onClick={onRest}
+          disabled={!player || player.inCombat || player.isDead}
+        >
+          😴 Se reposer
+        </button>
+        <div className="turn-indicator">
+          {turn === 'player' ? '👉 À toi de jouer' : '🛡️ Tour du monstre'}
         </div>
       </div>
 
-      <div className="combat-right">
-        <div className={`sprite monster-sprite ${monster?.type || 'mob'}`} title={monster?.type || 'Monstre'} />
-        <div className="card">
-          <div className="row">
-            <div className="title">{monster?.type || 'Monstre'}</div>
-            <div className="lvl">Lvl {monster?.level}</div>
-          </div>
-          <div className="meter hp">
-            <div style={{ width: `${percent(monster?.hp || 0, monster?.maxHp || 1)}%` }} />
-          </div>
-          <div className="row mini"><span>HP</span><span>{monster?.hp}/{monster?.maxHp}</span></div>
-        </div>
+      {/* Journal */}
+      <div className="log">
+        {(Array.isArray(log) ? log : [])
+          .slice(-8)
+          .map((entry, i) => {
+            const { side, text } = normalizeLog(entry);
+            return (
+              <div key={i} className={`log-line ${side}`}>
+                {text}
+              </div>
+            );
+          })}
       </div>
-
-      <button className="combat-close" onClick={onClose}>✖</button>
-      <div className={`turn-indicator ${turn}`}>{turn === 'player' ? 'À toi de jouer' : 'Tour du monstre'}</div>
     </div>
   );
 }

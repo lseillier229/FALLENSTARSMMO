@@ -38,6 +38,25 @@ function Game({ user }) {
             }));
             setConnected(true);
         });
+        // Liste des joueurs en ligne (init + diagnostic multi)
+        newSocket.on('onlineList', ({ players }) => {
+            setGameState(prev => ({ ...prev, players: Array.isArray(players) ? players : [] }));
+        });
+
+        // Mise à jour incrémentale quand un joueur rejoint
+        newSocket.on('playerJoined', (p) => {
+            if (!p) return;
+            setGameState(prev => {
+                const others = (prev.players || []).filter(x => x.userId !== p.userId);
+                return { ...prev, players: [...others, p] };
+            });
+        });
+
+        // Et quand un joueur part
+        newSocket.on('playerLeft', ({ userId }) => {
+            setGameState(prev => ({ ...prev, players: (prev.players || []).filter(p => p.userId !== userId) }));
+        });
+
         // Réception d'un chunk de terrain
         newSocket.on('chunk', ({ chunk }) => {
             setGameState(prev => ({

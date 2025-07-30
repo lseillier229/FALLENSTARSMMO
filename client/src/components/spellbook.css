@@ -1,0 +1,28 @@
+.spellbook { max-width: 720px; }
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  margin: 10px 0 6px;
+}
+.skill-card {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 10px;
+  padding: 10px;
+  text-align: left;
+  position: relative;
+}
+.skill-card .name { font-weight: 600; margin-bottom: 4px; }
+.skill-card .meta { font-size: 12px; opacity: 0.85; }
+.skill-card .pill {
+  position: absolute; right: 8px; top: 8px;
+  font-size: 11px; padding: 2px 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 999px;
+}
+.skill-card.selected { outline: 2px solid #f59e0b; }
+.actions { display:flex; justify-content:flex-end; gap:10px; margin-top: 10px; }
+.actions .primary { background:#f59e0b; border:0; color:#111827; padding:8px 12px; border-radius:8px; }

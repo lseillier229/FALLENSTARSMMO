@@ -271,7 +271,7 @@ class GameWorld {
         const allPlayers = Array.from(this.players.values());
         const allMonsters = Array.from(this.monsters.values());
         const now = Date.now();
-        const VIEW = 25; // rayon de vision en cases
+        const VIEW = parseInt(process.env.VIEW_RADIUS || '25', 10); // rayon de vision en cases
         
         for (const p of allPlayers) {
             const sock = io.sockets.sockets.get(p.socketId);
@@ -597,7 +597,9 @@ io.on('connection', (socket) => {
                 player.xp = character.xp;
                 player.hp = character.hp;
                 player.kamas = character.kamas;
-                player.socketId = socket.id;
+                player.socketId = socket.id; // refresh socketId
+                // Envoie la liste des joueurs en ligne au client (diagnostic & init)
+                socket.emit('onlineList', { players: Array.from(gameWorld.players.values()).map(p => p.getPublicData()) });
                 player.hp = Math.min(character.hp, player.maxHp);
                 gameWorld.players.set(socket.userId, player);
                 
