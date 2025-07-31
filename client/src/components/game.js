@@ -86,6 +86,8 @@ function Game({ user }) {
                     }
                 ]
             }));
+            // Rafraîchir l'inventaire après le loot
+            newSocket.emit('getInventory');
             
             // Afficher le loot obtenu
             if (data.loot && data.loot.length > 0) {

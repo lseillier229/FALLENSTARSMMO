@@ -686,6 +686,19 @@ app.post('/api/character/create', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
+const SLOT_ALIASES = {
+  weapon: 'weapon',  arme: 'weapon',
+  helmet: 'helmet',  casque: 'helmet',
+  chest:  'chest',   plastron: 'chest',
+  boots:  'boots',   bottes: 'boots',
+  ring:   'ring',    anneau: 'ring',
+  amulet: 'amulet',  amulette: 'amulet'
+};
+
+function normSlot(s) {
+  const k = String(s || '').toLowerCase();
+  return SLOT_ALIASES[k] || k;
+}
 class PlayerExtended extends Player {
     constructor(...args) {
         super(...args);
@@ -719,6 +732,8 @@ class PlayerExtended extends Player {
             `, [this.userId]);
 
             this.inventory = [];
+            // Reset equipment to avoid stale items after (un)equip changes
+            this.equipment = { weapon: null, helmet: null, chest: null, boots: null, ring: null, amulet: null };
             result.rows.forEach(row => {
                 if (row.is_equipped && row.slot) {
                     this.equipment[row.slot] = row;
@@ -784,59 +799,78 @@ class PlayerExtended extends Player {
     }
 
     async equipItem(itemId, slot) {
-        try {
-            // Vérifier que l'item est dans l'inventaire
-            const item = this.inventory.find(i => i.item_id === itemId);
-            if (!item || item.type !== slot) return false;
+    try {
+        slot = normSlot(slot);
+        const invRow = this.inventory.find(i => i.item_id === itemId);
+        if (!invRow || normSlot(invRow.type) !== slot) return false;
 
-            // Déséquiper l'item actuel si existant
-            if (this.equipment[slot]) {
-                await this.unequipItem(slot);
-            }
+        const characterId = await this.getCharacterId();
 
-            // Équiper le nouvel item
-            const characterId = await this.getCharacterId();
-            await db.query(`
-                UPDATE player_inventory 
-                SET is_equipped = true, slot = $1 
-                WHERE character_id = $2 AND item_id = $3
-            `, [slot, characterId, itemId]);
-
-            // Mettre à jour localement
-            this.equipment[slot] = item;
-            this.inventory = this.inventory.filter(i => i.item_id !== itemId);
-            this.calculateStats();
-
-            return true;
-        } catch (error) {
-            console.error('Erreur équipement:', error);
-            return false;
+        // S'il y a déjà quelque chose au slot -> on l'enlève proprement
+        if (this.equipment[slot]) {
+        await this.unequipItem(slot);
         }
+
+        // 1) Décrémenter (ou enlever) la pile non équipée
+        const q = invRow.quantity || 1;
+        if (q > 1) {
+        await db.query(`
+            UPDATE player_inventory
+            SET quantity = quantity - 1
+            WHERE character_id = $1 AND item_id = $2 AND is_equipped = false
+        `, [characterId, itemId]);
+        } else {
+        await db.query(`
+            DELETE FROM player_inventory
+            WHERE character_id = $1 AND item_id = $2 AND is_equipped = false
+        `, [characterId, itemId]);
+        }
+
+        // 2) Upsert la pile équipée à 1
+        await db.query(`
+        INSERT INTO player_inventory (character_id, item_id, quantity, is_equipped, slot)
+        VALUES ($1, $2, 1, true, $3)
+        ON CONFLICT (character_id, item_id, is_equipped)
+        DO UPDATE SET quantity = 1, slot = EXCLUDED.slot
+        `, [characterId, itemId, slot]);
+
+        await this.loadInventory();
+        return true;
+    } catch (e) {
+        console.error('Erreur équipement:', e);
+        return false;
+    }
     }
 
+
     async unequipItem(slot) {
-        try {
-            if (!this.equipment[slot]) return false;
+    try {
+        slot = normSlot(slot);
+        if (!this.equipment[slot]) return false;
 
-            const characterId = await this.getCharacterId();
-            const item = this.equipment[slot];
+        const characterId = await this.getCharacterId();
+        const itemId = this.equipment[slot].item_id;
 
-            await db.query(`
-                UPDATE player_inventory 
-                SET is_equipped = false, slot = NULL 
-                WHERE character_id = $1 AND item_id = $2
-            `, [characterId, item.item_id]);
+        // 1) Supprimer la ligne équipée
+        await db.query(`
+        DELETE FROM player_inventory
+        WHERE character_id = $1 AND item_id = $2 AND is_equipped = true
+        `, [characterId, itemId]);
 
-            // Mettre à jour localement
-            this.inventory.push(item);
-            this.equipment[slot] = null;
-            this.calculateStats();
+        // 2) Ajouter/incrémenter la pile non équipée
+        await db.query(`
+        INSERT INTO player_inventory (character_id, item_id, quantity, is_equipped, slot)
+        VALUES ($1, $2, 1, false, NULL)
+        ON CONFLICT (character_id, item_id, is_equipped)
+        DO UPDATE SET quantity = player_inventory.quantity + 1
+        `, [characterId, itemId]);
 
-            return true;
-        } catch (error) {
-            console.error('Erreur déséquipement:', error);
-            return false;
-        }
+        await this.loadInventory();
+        return true;
+    } catch (e) {
+        console.error('Erreur déséquipement:', e);
+        return false;
+    }
     }
 
     async addItemToInventory(itemId, quantity = 1) {
@@ -1399,30 +1433,31 @@ async function saveCharacter(player) {
     }
 }
 async function saveCharacterEquipment(player) {
-    try {
-        const equipmentColumns = [];
-        const equipmentValues = [];
-        let paramIndex = 1;
+  try {
+    const equipmentColumns = [];
+    const equipmentValues = [];
+    let paramIndex = 1;
 
-        Object.entries(player.equipment).forEach(([slot, item]) => {
-            equipmentColumns.push(`equipped_${slot} = ${paramIndex}`);
-            equipmentValues.push(item ? item.item_id : null);
-            paramIndex++;
-        });
+    Object.entries(player.equipment).forEach(([slot, item]) => {
+      equipmentColumns.push(`equipped_${slot} = $${paramIndex}`);
+      equipmentValues.push(item ? item.item_id : null);
+      paramIndex++;
+    });
 
-        equipmentValues.push(player.userId);
+    equipmentValues.push(player.userId);
 
-        if (equipmentColumns.length > 0) {
-            await db.query(`
-                UPDATE characters 
-                SET ${equipmentColumns.join(', ')}
-                WHERE user_id = ${paramIndex}
-            `, equipmentValues);
-        }
-    } catch (error) {
-        console.error('Erreur sauvegarde équipement:', error);
+    if (equipmentColumns.length > 0) {
+      await db.query(`
+        UPDATE characters
+        SET ${equipmentColumns.join(', ')}
+        WHERE user_id = $${paramIndex}
+      `, equipmentValues);
     }
+  } catch (error) {
+    console.error('Erreur sauvegarde équipement:', error);
+  }
 }
+
 async function saveCharacterPosition(player) {
     try {
         await db.query(

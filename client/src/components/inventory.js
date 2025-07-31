@@ -46,9 +46,13 @@ function Inventory({ socket, onClose }) {
             setSelectedItem(null);
         });
 
-        socket.on('unequipSuccess', () => {
-            socket.emit('getInventory');
-            setSelectedItem(null);
+        socket.on('unequipSuccess', ({ slot }) => {
+          setInventoryData(prev => ({
+            ...prev,
+            equipment: { ...prev.equipment, [slot]: null }
+          }));
+          socket.emit('getInventory'); 
+          setSelectedItem(null);
         });
 
         return () => {
