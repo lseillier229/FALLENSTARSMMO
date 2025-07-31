@@ -4,17 +4,15 @@
 import React from 'react';
 import './combat.css';
 
-export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
+export default function CombatUI({ combat, onUseSkill, onFlee, onRest, onEndTurn }) {
   if (!combat || !combat.active) return null;
 
   const { player, monster, skills, turn, log } = combat;
+  const percent = (num, den) => Math.max(0, Math.min(100, Math.round((num / Math.max(1, den)) * 100)));
 
-  // Helper pour les pourcentages
-  const percent = (num, den) =>
-    Math.max(0, Math.min(100, Math.round((num / Math.max(1, den)) * 100)));
-
-  const canPlay = turn === 'player' && player && !player.isDead;
-  const skillsList = Array.isArray(skills) ? skills : [];
+  const canPlay     = turn === 'player' && player && !player.isDead;
+  const canEndTurn  = canPlay;
+  const skillsList  = Array.isArray(skills) ? skills : [];
 
   const handleUse = (skill) => {
     if (!skill || !canPlay) return;
@@ -22,7 +20,6 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
     if (typeof onUseSkill === 'function') onUseSkill(skill.id);
   };
 
-  // Normalise les entrées du log
   const normalizeLog = (entry) => {
     if (typeof entry === 'string') return { side: 'system', text: entry };
     if (entry && typeof entry === 'object') {
@@ -100,7 +97,10 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
           </button>
         ))}
       </div>
-
+      {/* Bouton Fin de tour */}
+      <button className="btn" onClick={onEndTurn} disabled={!canEndTurn}>
+        ⏭️ Fin de tour
+      </button>
       {/* Actions et indicateur de tour */}
       <div className="actions-row">
         <button className="action" onClick={onFlee} disabled={!canPlay}>

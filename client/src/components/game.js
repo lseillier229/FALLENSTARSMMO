@@ -55,6 +55,12 @@ function Game({ user }) {
                 }
             }));
         });
+        newSocket.on('pvpStatus', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { ...prev.player, pvpEnabled: !!data.enabled }
+            }));
+        });
         newSocket.on('authSuccess', (data) => {
             setGameState(prev => ({
                 ...prev,
@@ -356,7 +362,9 @@ function Game({ user }) {
                 <CombatUI
                     combat={gameState.combat}
                     onUseSkill={handleUseSkill}
-                    onClose={() => setGameState(prev => ({ ...prev, combat: { ...prev.combat, active:false } }))}
+                    onFlee={() => socket.emit('flee')}
+                    onRest={() => socket.emit('rest')}
+                    onEndTurn={() => socket.emit('endTurn')}
                 />
             )}
         </div>

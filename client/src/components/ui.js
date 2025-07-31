@@ -39,6 +39,9 @@ function UI({ gameState, socket, onTargetSelect }) {
   const handleAction = (action) => {
     if (!socket) return;
     switch (action) {
+      case 'togglePvp':
+        socket.emit('togglePvp', { enabled: !gameState.player?.pvpEnabled });
+        break;
       case 'rest': 
         socket.emit('rest'); 
         break;
@@ -82,6 +85,9 @@ function UI({ gameState, socket, onTargetSelect }) {
         </button>
         <button onClick={() => setShowSpellbook(true)} className="action-btn">
           📜 Grimoire
+        </button>
+        <button className="action-btn" onClick={() => handleAction('togglePvp')}>
+          {gameState.player?.pvpEnabled ? 'PVP: ON' : 'PVP: OFF'}
         </button>
       </div>
 

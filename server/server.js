@@ -412,6 +412,49 @@ class Player {
                 this.startCombat(monster);
             }
         });
+
+        // PvP encounters: if another player is on the same tile and both enabled, start PvP
+        gameWorld.players.forEach(other => {
+            if (other.userId !== this.userId && other.x === this.x && other.y === this.y && !other.inCombat) {
+                if (this.pvpEnabled && other.pvpEnabled) {
+                    this.startPvp(other);
+                }
+            }
+        });
+    }
+
+    startPvp(opponent) {
+        if (this.inCombat || opponent.inCombat) return;
+        this.inCombat = true;
+        opponent.inCombat = true;
+        this.inPvp = true;
+        opponent.inPvp = true;
+        this.currentTarget = opponent.userId;
+        opponent.currentTarget = this.userId;
+        this.pvpOpponent = opponent.userId;
+        opponent.pvpOpponent = this.userId;
+        this.pa = 6;
+        opponent.pa = 0;
+        this.pvpTurnOwner = this.userId;
+        opponent.pvpTurnOwner = this.userId;
+        const sockA = io.sockets.sockets.get(this.socketId);
+        const sockB = io.sockets.sockets.get(opponent.socketId);
+        if (sockA) {
+            sockA.emit('combatStarted', {
+                player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
+                monster: { id: opponent.userId, type: opponent.username, level: opponent.level, hp: opponent.hp, maxHp: opponent.maxHp },
+                skills: this.getEquippedSkills(),
+                turn: 'player'
+            });
+        }
+        if (sockB) {
+            sockB.emit('combatStarted', {
+                player: { userId: opponent.userId, username: opponent.username, level: opponent.level, hp: opponent.hp, maxHp: opponent.maxHp, pa: opponent.pa, classe: opponent.classe },
+                monster: { id: this.userId, type: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp },
+                skills: opponent.getEquippedSkills(),
+                turn: 'monster'
+            });
+        }
     }
 
     
@@ -423,15 +466,21 @@ class Player {
         const sock = io.sockets.sockets.get(this.socketId);
         if (sock) {
             sock.emit('combatStarted', {
-                player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
-                monster: monster.getPublicData(),
-                skills: this.getEquippedSkills(),
-                turn: 'player'
-            });
+            player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
+            monster: monster.getPublicData(),
+            skills: this.getEquippedSkills(),
+            turn: 'player'
+        });
+        // PvP state
+        this.pvpEnabled = false;
+        this.inPvp = false;
+        this.pvpOpponent = null;
+        this.pvpTurnOwner = null;
+            };
         }
     }
     
-}
+
 
 class Monster {
     constructor(id, x, y, level) {
@@ -943,7 +992,50 @@ function authenticateToken(req, res, next) {
         next();
     });
 }
+function playMonsterTurn(player, monster, socket) {
+  const mSkill = pick(MONSTER_SKILLS);                // attaque aléatoire
+  const pStats = player.stats || {};
 
+  // Dégâts bruts + niveau
+  let mDmg = rand(mSkill.power[0], mSkill.power[1]) + Math.floor(monster.level * 1.5);
+
+  // Esquive / défense du joueur
+  const dodged = Math.random() < ((pStats.dodgeChance || 0) / 100);
+  if (!dodged) {
+    const mitig = Math.max(1, mDmg - (pStats.defense || 0));
+    player.hp   = Math.max(0, player.hp - mitig);
+    mDmg        = mitig;
+  } else {
+    mDmg = 0;
+  }
+
+  // Petit log côté client
+  const logs = [{
+    side: 'monster',
+    text: dodged
+      ? `${monster.type} attaque, mais tu esquives !`
+      : `${monster.type} utilise ${mSkill.name} et inflige ${mDmg} dégâts.`
+  }];
+
+  // Si le joueur est vivant ⇒ recharger ses PA et renvoyer le tour
+  if (player.hp > 0) {
+    player.pa = 6;
+    io.to(socket.id).emit('combatUpdate', {
+      player:  { hp: player.hp, pa: player.pa },
+      monster: monster.getPublicData(),
+      turn:    'player',
+      log:     logs
+    });
+  } else {
+    // Joueur K-O
+    player.inCombat = false;
+    monster.inCombat = false;
+    player.isDead = true;
+    saveCharacter(player);
+    io.to(socket.id).emit('playerDied', { respawnIn: 8000 });
+    setTimeout(() => respawnPlayer(player, socket.id), 8000);
+  }
+}
 // ========================
 // WEBSOCKET HANDLERS
 // ========================
@@ -1000,6 +1092,7 @@ io.on('connection', (socket) => {
 
     // Mouvement du joueur
     socket.on('move', (direction) => {
+    
         const player = gameWorld.players.get(socket.userId);
         if (!player) return;
 
@@ -1023,7 +1116,30 @@ io.on('connection', (socket) => {
             saveCharacterPosition(player);
         }
     });
-
+    socket.on('togglePvp', ({ enabled }) => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player) return;
+        player.pvpEnabled = !!enabled;
+        socket.emit('pvpStatus', { enabled: player.pvpEnabled });
+    });
+    socket.on('togglePvp', ({ enabled }) => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player) return;
+        player.pvpEnabled = !!enabled;
+        socket.emit('pvpStatus', { enabled: player.pvpEnabled });
+    });
+    socket.on('requestPvp', ({ opponentId }) => {
+        const player = gameWorld.players.get(socket.userId);
+        const opponent = gameWorld.players.get(opponentId);
+        if (!player || !opponent) return;
+        if (player.inCombat || opponent.inCombat) return;
+        // Require adjacency or same tile
+        const dist = Math.max(Math.abs(player.x - opponent.x), Math.abs(player.y - opponent.y));
+        if (dist > 1) return;
+        if (player.pvpEnabled && opponent.pvpEnabled) {
+            player.startPvp(opponent);
+        }
+    });
     // Action d'attaque
     socket.on('attack', (targetId) => {
         const player = gameWorld.players.get(socket.userId);
@@ -1103,6 +1219,55 @@ io.on('connection', (socket) => {
             }, 30000);
         }
     });
+
+    socket.on('endTurn', () => {
+    const player = gameWorld.players.get(socket.userId);
+    if (!player || !player.inCombat) return;
+
+    // --- PvP ---
+    if (player.inPvp) {
+        // Doit être son tour
+        if (player.pvpTurnOwner !== player.userId) return;
+
+        // Remet ses PA à 0
+        player.pa = 0;
+
+        const opponent = gameWorld.players.get(player.pvpOpponent);
+        if (!opponent) return;
+
+        // Passe le tour
+        opponent.pa = 6;
+        player.pvpTurnOwner = opponent.userId;
+        opponent.pvpTurnOwner = opponent.userId;
+
+        // Push combatUpdate aux deux
+        const sockA = io.sockets.sockets.get(player.socketId);
+        const sockB = io.sockets.sockets.get(opponent.socketId);
+
+        const viewA = { hp: player.hp, pa: player.pa };
+        const oppA  = { id: opponent.userId, type: opponent.username,
+                        level: opponent.level, hp: opponent.hp, maxHp: opponent.maxHp };
+        const viewB = { hp: opponent.hp, pa: opponent.pa };
+        const oppB  = { id: player.userId, type: player.username,
+                        level: player.level, hp: player.hp, maxHp: player.maxHp };
+
+        if (sockA) sockA.emit('combatUpdate', { player: viewA, monster: oppA, turn: 'monster', log: [] });
+        if (sockB) sockB.emit('combatUpdate', { player: viewB, monster: oppB, turn: 'player',  log: [] });
+        return;
+    }
+
+    // --- PvE ---
+    if (!player.currentTarget) return;
+    const monster = gameWorld.monsters.get(player.currentTarget);
+    if (!monster || !monster.inCombat) return;
+
+    player.pa = 0;
+
+    // Lance tout de suite l’attaque du monstre (logique déjà existante)
+    playMonsterTurn(player, monster, socket);
+    });
+
+
     socket.on('getInventory', async () => {
         const player = gameWorld.players.get(socket.userId);
         if (!player) return;
@@ -1287,8 +1452,8 @@ io.on('connection', (socket) => {
         const player = gameWorld.players.get(socket.userId);
         if (!player || !player.inCombat) return;
 
-        const target = gameWorld.monsters.get(targetId);
-        if (!target || !target.inCombat) return;
+        let target = gameWorld.monsters.get(targetId) || gameWorld.players.get(targetId);
+        if (!target || (!target.inCombat && !target.inPvp)) return;
 
         const skill = (player.skills || []).find(s => s.id === skillId) || { id:'basic', name:'Attaque', pa:2, power:[8,12] };
         if ((player.pa || 0) < (skill.pa || 0)) return;
@@ -1296,6 +1461,69 @@ io.on('connection', (socket) => {
         // Player action
         player.pa -= (skill.pa || 0);
         let dmg = rand(skill.power[0], skill.power[1]) + Math.floor(player.level * 2);
+        // PvP branch: if target is a Player (has userId), apply PvP rules
+            // Turn enforcement
+            if (player.pvpTurnOwner && player.pvpTurnOwner !== player.userId) {
+                return;
+            }
+        if (target && target.userId) {
+            // Apply damage or heal
+            if (dmg < 0) {
+                player.hp = Math.min(player.maxHp, player.hp + (Math.abs(dmg)));
+            } else {
+                // Defense / dodge from target stats
+                const tStats = target.stats || {};
+                const dodged = Math.random() < ((tStats.dodgeChance || 0) / 100);
+                if (!dodged) {
+                    const mitig = Math.max(1, dmg - (tStats.defense || 0));
+                    target.hp = Math.max(0, target.hp - mitig);
+                    dmg = mitig;
+                } else {
+                    dmg = 0;
+                }
+                // Lifesteal from attacker
+                const lsPct = (player.stats?.lifeSteal || 0) / 100;
+                if (lsPct > 0 && dmg > 0) {
+                    const heal = Math.max(1, Math.floor(dmg * lsPct));
+                    player.hp = Math.min(player.maxHp, player.hp + heal);
+                }
+            }
+
+            // Emit combat update to both players
+            const sockA = io.sockets.sockets.get(player.socketId);
+            const sockB = io.sockets.sockets.get(target.socketId);
+            const playerViewA = { hp: player.hp, pa: player.pa };
+            const opponentViewA = { id: target.userId, type: target.username, level: target.level, hp: target.hp, maxHp: target.maxHp };
+            const playerViewB = { hp: target.hp, pa: target.pa };
+            const opponentViewB = { id: player.userId, type: player.username, level: player.level, hp: player.hp, maxHp: player.maxHp };
+
+            if (sockA) sockA.emit('combatUpdate', { player: playerViewA, monster: opponentViewA, turn: 'player', log: [] });
+            if (sockB) sockB.emit('combatUpdate', { player: playerViewB, monster: opponentViewB, turn: 'monster', log: [] });
+            // Switch turn if attacker has no PA left
+            if (player.pa <= 0) {
+                const opp = target;
+                opp.pa = 6;
+                player.pvpTurnOwner = opp.userId;
+                opp.pvpTurnOwner = opp.userId;
+                // Notify turn change
+                if (sockA) sockA.emit('combatUpdate', { player: { hp: player.hp, pa: player.pa }, monster: opponentViewA, turn: 'monster', log: [] });
+                if (sockB) sockB.emit('combatUpdate', { player: { hp: opp.hp, pa: opp.pa }, monster: opponentViewB, turn: 'player', log: [] });
+            }
+
+            // Check KO
+            if (target.hp <= 0) {
+                player.inCombat = false; player.inPvp = false; player.pvpOpponent = null;
+                target.inCombat = false; target.inPvp = false; target.pvpOpponent = null;
+                const msg = `${player.username} a vaincu ${target.username} !`;
+                if (sockA) sockA.emit('combatEnded', { message: msg, player: { hp: player.hp, maxHp: player.maxHp, xp: player.xp, level: player.level, kamas: player.kamas }, loot: [] });
+                if (sockB) sockB.emit('combatEnded', { message: msg, player: { hp: target.hp, maxHp: target.maxHp, xp: target.xp, level: target.level, kamas: target.kamas }, loot: [] });
+                // Optional: mark defeated player dead and respawn
+                target.isDead = true;
+                io.to(target.socketId).emit('playerDied', { respawnIn: 8000 });
+                setTimeout(() => { respawnPlayer(target, target.socketId); }, 8000);
+            }
+            return; // end PvP branch
+        }
         if (dmg < 0) {
             // heal
             player.hp = Math.min(player.maxHp, player.hp + (Math.abs(dmg)));

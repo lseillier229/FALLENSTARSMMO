@@ -353,6 +353,12 @@ function GameCanvas({ gameState, onTargetSelect, socket }) {
             m.x === hoveredTile.x && m.y === hoveredTile.y
         );
 
+        // Sinon, vérifier s'il y a un joueur cliqué
+        const other = gameState.players.find(pl => pl.userId !== gameState.player.userId && pl.x === hoveredTile.x && pl.y === hoveredTile.y);
+        if (other && socket) {
+            socket.emit('requestPvp', { opponentId: other.userId });
+            return;
+        }
         if (monster) {
             onTargetSelect(monster.id);
         }
