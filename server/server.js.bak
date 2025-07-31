@@ -5,6 +5,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const { install: installEquipment } = require('./modules/equipment');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
@@ -61,44 +62,20 @@ class Perlin {
 // === Combat/Skills config ===
 const SKILLS = {
     iop: [
-        { id: 'pression', name: 'Pression', pa: 2, power: [8, 12], level: 1 },
-        { id: 'bond', name: 'Bond', pa: 3, power: [14, 20], level: 1 },
-        { id: 'intimidation', name: 'Intimidation', pa: 2, power: [10, 14], level: 3 },
-        { id: 'compulsion', name: 'Compulsion', pa: 4, power: [22, 30], level: 5 },
-        { id: 'epee_divine', name: 'Épée Divine', pa: 5, power: [35, 45], level: 8 },
-        { id: 'colere', name: 'Colère de Iop', pa: 6, power: [45, 60], level: 10 },
-        { id: 'vitalite', name: 'Vitalité', pa: 2, power: [12, 18], level: 12 },
-        { id: 'puissance', name: 'Puissance', pa: 5, power: [40, 55], level: 15 }
+        { id: 'iop_strike', name: 'Coup de Iop', pa: 3, power: [18, 26] },
+        { id: 'colere', name: 'Colère', pa: 5, power: [35, 50] }
     ],
     cra: [
-        { id: 'fleche_magique', name: 'Flèche Magique', pa: 2, power: [7, 11], level: 1 },
-        { id: 'tir_a_reculons', name: 'Tir à Reculons', pa: 3, power: [12, 18], level: 1 },
-        { id: 'fleche_glacee', name: 'Flèche Glacée', pa: 3, power: [15, 21], level: 3 },
-        { id: 'tir_puissant', name: 'Tir Puissant', pa: 4, power: [20, 28], level: 5 },
-        { id: 'fleche_harcelante', name: 'Flèche Harcelante', pa: 4, power: [24, 32], level: 8 },
-        { id: 'fleche_punitive', name: 'Flèche Punitive', pa: 5, power: [32, 42], level: 10 },
-        { id: 'oeil_de_taupe', name: 'Œil de Taupe', pa: 3, power: [18, 24], level: 12 },
-        { id: 'fleche_destructrice', name: 'Flèche Destructrice', pa: 6, power: [45, 60], level: 15 }
+        { id: 'tir_precis', name: 'Tir Précis', pa: 3, power: [14, 22] },
+        { id: 'fleche_puissante', name: 'Flèche Puissante', pa: 5, power: [28, 42] }
     ],
     eni: [
-        { id: 'mot_soignant', name: 'Mot Soignant', pa: 2, power: [-15, -20], level: 1 },
-        { id: 'mot_interdit', name: 'Mot Interdit', pa: 3, power: [10, 16], level: 1 },
-        { id: 'mot_stimulant', name: 'Mot Stimulant', pa: 2, power: [-18, -24], level: 3 },
-        { id: 'mot_drainant', name: 'Mot Drainant', pa: 4, power: [18, 26], level: 5 },
-        { id: 'mot_revitalisant', name: 'Mot Revitalisant', pa: 3, power: [-25, -35], level: 8 },
-        { id: 'mot_de_reconstitution', name: 'Reconstitution', pa: 4, power: [-35, -45], level: 10 },
-        { id: 'mot_vampirique', name: 'Mot Vampirique', pa: 5, power: [22, 30], level: 12 },
-        { id: 'mot_de_regeneration', name: 'Régénération', pa: 5, power: [-40, -55], level: 15 }
+        { id: 'mot_interdit', name: 'Mot Interdit', pa: 3, power: [12, 18] },
+        { id: 'soin', name: 'Soin', pa: 3, power: [-18, -28] } // négatif = soin
     ],
     sadi: [
-        { id: 'ronce', name: 'Ronce', pa: 2, power: [8, 12], level: 1 },
-        { id: 'poison_paralysant', name: 'Poison Paralysant', pa: 3, power: [12, 18], level: 1 },
-        { id: 'larme', name: 'La Larme', pa: 3, power: [14, 20], level: 3 },
-        { id: 'sacrifice_poupesque', name: 'Sacrifice Poupesque', pa: 4, power: [20, 28], level: 5 },
-        { id: 'ronce_aggressive', name: 'Ronce Agressive', pa: 4, power: [24, 32], level: 8 },
-        { id: 'puissance_sylvestre', name: 'Puissance Sylvestre', pa: 5, power: [32, 42], level: 10 },
-        { id: 'ronce_multiple', name: 'Ronce Multiple', pa: 5, power: [28, 38], level: 12 },
-        { id: 'folie_vegetale', name: 'Folie Végétale', pa: 6, power: [45, 60], level: 15 }
+        { id: 'ronces', name: 'Ronces', pa: 3, power: [15, 24] },
+        { id: 'puissance_veg', name: 'Puissance Végétale', pa: 4, power: [22, 32] }
     ]
 };
 
@@ -106,23 +83,7 @@ const MONSTER_SKILLS = [
     { id: 'morsure', name: 'Morsure', power: [8, 14] },
     { id: 'charge', name: 'Charge', power: [10, 18] }
 ];
-const RARITY_COLORS = {
-    common: '#B0B0B0',
-    uncommon: '#1EFF00',
-    rare: '#0080FF',
-    epic: '#A335EE',
-    legendary: '#FF8000',
-    unique: '#FF0000'
-};
 
-const RARITY_MULTIPLIERS = {
-    common: 1,
-    uncommon: 1.2,
-    rare: 1.5,
-    epic: 2,
-    legendary: 3,
-    unique: 5
-};
 function rand(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
@@ -357,7 +318,6 @@ class Player {
         this.inCombat = false;
         this.lastAction = Date.now();
         this.socketId = null;
-        this.equippedSkills = [];
     }
 
     getMaxHp() {
@@ -366,13 +326,7 @@ class Player {
         };
         return (baseHp[this.classe] || 100) + (this.level - 1) * 20;
     }
-    getEquippedSkills() {
-        const allSkills = SKILLS[this.classe] || [];
-        if (!this.equippedSkills || this.equippedSkills.length === 0) {
-            return allSkills.slice(0, 2); // Par défaut, les 2 premiers
-        }
-        return allSkills.filter(s => this.equippedSkills.includes(s.id));
-    }
+
     getPublicData() {
         return {
             userId: this.userId,
@@ -425,7 +379,7 @@ class Player {
             sock.emit('combatStarted', {
                 player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
                 monster: monster.getPublicData(),
-                skills: this.getEquippedSkills(),
+                skills: this.skills,
                 turn: 'player'
             });
         }
@@ -464,94 +418,7 @@ class Monster {
         };
     }
 }
-class LootSystem {
-    constructor() {
-        this.itemsCache = new Map();
-        this.dropsCache = new Map();
-        this.uniqueItemsDropped = new Set(); // Track des uniques déjà droppés
-        this.loadItemsData();
-    }
 
-    async loadItemsData() {
-        try {
-            // Charger tous les items
-            const itemsResult = await db.query('SELECT * FROM items');
-            itemsResult.rows.forEach(item => {
-                this.itemsCache.set(item.id, item);
-            });
-
-            // Charger toutes les tables de drops
-            const dropsResult = await db.query('SELECT * FROM monster_drops');
-            dropsResult.rows.forEach(drop => {
-                const key = drop.monster_type;
-                if (!this.dropsCache.has(key)) {
-                    this.dropsCache.set(key, []);
-                }
-                this.dropsCache.get(key).push(drop);
-            });
-
-            // Charger les items uniques déjà droppés
-            const uniqueResult = await db.query(`
-                SELECT DISTINCT item_id 
-                FROM player_inventory pi
-                JOIN items i ON pi.item_id = i.id
-                WHERE i.is_unique = true
-            `);
-            uniqueResult.rows.forEach(row => {
-                this.uniqueItemsDropped.add(row.item_id);
-            });
-
-            console.log(`✅ Système de loot initialisé: ${this.itemsCache.size} items, ${this.dropsCache.size} tables de drops`);
-        } catch (error) {
-            console.error('❌ Erreur chargement données de loot:', error);
-        }
-    }
-
-    async generateLoot(monsterType, monsterLevel) {
-        const drops = this.dropsCache.get(monsterType) || [];
-        const loot = [];
-
-        for (const drop of drops) {
-            // Vérifier le niveau du monstre
-            if (monsterLevel < drop.monster_level_min || monsterLevel > drop.monster_level_max) {
-                continue;
-            }
-
-            // Vérifier si l'item est unique et déjà droppé
-            const item = this.itemsCache.get(drop.item_id);
-            if (item && item.is_unique && this.uniqueItemsDropped.has(drop.item_id)) {
-                continue;
-            }
-
-            // Roll pour le drop
-            const roll = Math.random() * 100;
-            if (roll <= drop.drop_chance) {
-                loot.push({
-                    ...item,
-                    quantity: 1
-                });
-
-                // Si c'est un unique, le marquer comme droppé
-                if (item.is_unique) {
-                    this.uniqueItemsDropped.add(drop.item_id);
-                }
-            }
-        }
-
-        // Bonus de drop basé sur le niveau
-        if (monsterLevel >= 10 && Math.random() < 0.1) {
-            // 10% de chance de drop bonus pour monstres niveau 10+
-            const bonusGold = monsterLevel * rand(5, 15);
-            loot.push({ type: 'gold', amount: bonusGold });
-        }
-
-        return loot;
-    }
-
-    getItemById(itemId) {
-        return this.itemsCache.get(itemId);
-    }
-}
 // ========================
 // ROUTES API
 // ========================
@@ -672,7 +539,7 @@ app.post('/api/character/create', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Personnage déjà existant' });
         }
 
-        const player = new PlayerExtended(userId, name, classe);
+        const player = new Player(userId, name, classe);
 
         // Créer le personnage
         const result = await db.query(
@@ -686,214 +553,7 @@ app.post('/api/character/create', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
-class PlayerExtended extends Player {
-    constructor(...args) {
-        super(...args);
-        this.equipment = {
-            weapon: null,
-            helmet: null,
-            chest: null,
-            boots: null,
-            ring: null,
-            amulet: null
-        };
-        this.stats = {
-            damageMin: 0,
-            damageMax: 0,
-            defense: 0,
-            critChance: 0,
-            dodgeChance: 0,
-            lifeSteal: 0
-        };
-        this.inventory = [];
-    }
 
-    async loadInventory() {
-        try {
-            const result = await db.query(`
-                SELECT pi.*, i.* 
-                FROM player_inventory pi
-                JOIN items i ON pi.item_id = i.id
-                WHERE pi.character_id = (SELECT id FROM characters WHERE user_id = $1)
-                ORDER BY pi.is_equipped DESC, i.rarity DESC
-            `, [this.userId]);
-
-            this.inventory = [];
-            result.rows.forEach(row => {
-                if (row.is_equipped && row.slot) {
-                    this.equipment[row.slot] = row;
-                } else {
-                    this.inventory.push(row);
-                }
-            });
-
-            this.calculateStats();
-        } catch (error) {
-            console.error('Erreur chargement inventaire:', error);
-        }
-    }
-
-    calculateStats() {
-        // Reset stats
-        this.stats = {
-            damageMin: 0,
-            damageMax: 0,
-            defense: 0,
-            critChance: 0,
-            dodgeChance: 0,
-            lifeSteal: 0
-        };
-
-        // Stats de base selon la classe
-        const baseStats = {
-            iop: { damageMin: 5, damageMax: 10, defense: 5 },
-            cra: { damageMin: 7, damageMax: 12, defense: 3 },
-            eni: { damageMin: 3, damageMax: 8, defense: 4 },
-            sadi: { damageMin: 4, damageMax: 9, defense: 4 }
-        };
-
-        const base = baseStats[this.classe] || baseStats.iop;
-        this.stats.damageMin = base.damageMin + this.level * 2;
-        this.stats.damageMax = base.damageMax + this.level * 3;
-        this.stats.defense = base.defense + this.level;
-
-        // Ajouter les stats de l'équipement
-        let totalPaBonus = 0;
-        let totalPmBonus = 0;
-        let totalHpBonus = 0;
-
-        Object.values(this.equipment).forEach(item => {
-            if (item) {
-                this.stats.damageMin += item.damage_min || 0;
-                this.stats.damageMax += item.damage_max || 0;
-                this.stats.defense += item.defense || 0;
-                this.stats.critChance += item.crit_chance || 0;
-                this.stats.dodgeChance += item.dodge_chance || 0;
-                this.stats.lifeSteal += item.life_steal || 0;
-                totalPaBonus += item.pa_bonus || 0;
-                totalPmBonus += item.pm_bonus || 0;
-                totalHpBonus += item.hp_bonus || 0;
-            }
-        });
-
-        // Appliquer les bonus
-        this.pa = 6 + totalPaBonus;
-        this.pm = 3 + totalPmBonus;
-        this.maxHp = this.getMaxHp() + totalHpBonus;
-        this.hp = Math.min(this.hp, this.maxHp);
-    }
-
-    async equipItem(itemId, slot) {
-        try {
-            // Vérifier que l'item est dans l'inventaire
-            const item = this.inventory.find(i => i.item_id === itemId);
-            if (!item || item.type !== slot) return false;
-
-            // Déséquiper l'item actuel si existant
-            if (this.equipment[slot]) {
-                await this.unequipItem(slot);
-            }
-
-            // Équiper le nouvel item
-            const characterId = await this.getCharacterId();
-            await db.query(`
-                UPDATE player_inventory 
-                SET is_equipped = true, slot = $1 
-                WHERE character_id = $2 AND item_id = $3
-            `, [slot, characterId, itemId]);
-
-            // Mettre à jour localement
-            this.equipment[slot] = item;
-            this.inventory = this.inventory.filter(i => i.item_id !== itemId);
-            this.calculateStats();
-
-            return true;
-        } catch (error) {
-            console.error('Erreur équipement:', error);
-            return false;
-        }
-    }
-
-    async unequipItem(slot) {
-        try {
-            if (!this.equipment[slot]) return false;
-
-            const characterId = await this.getCharacterId();
-            const item = this.equipment[slot];
-
-            await db.query(`
-                UPDATE player_inventory 
-                SET is_equipped = false, slot = NULL 
-                WHERE character_id = $1 AND item_id = $2
-            `, [characterId, item.item_id]);
-
-            // Mettre à jour localement
-            this.inventory.push(item);
-            this.equipment[slot] = null;
-            this.calculateStats();
-
-            return true;
-        } catch (error) {
-            console.error('Erreur déséquipement:', error);
-            return false;
-        }
-    }
-
-    async addItemToInventory(itemId, quantity = 1) {
-        try {
-            const characterId = await this.getCharacterId();
-            
-            // Vérifier si l'item existe déjà
-            const existing = await db.query(`
-                SELECT * FROM player_inventory 
-                WHERE character_id = $1 AND item_id = $2 AND is_equipped = false
-            `, [characterId, itemId]);
-
-            if (existing.rows.length > 0) {
-                // Augmenter la quantité
-                await db.query(`
-                    UPDATE player_inventory 
-                    SET quantity = quantity + $1 
-                    WHERE id = $2
-                `, [quantity, existing.rows[0].id]);
-            } else {
-                // Ajouter nouvel item
-                await db.query(`
-                    INSERT INTO player_inventory (character_id, item_id, quantity) 
-                    VALUES ($1, $2, $3)
-                `, [characterId, itemId, quantity]);
-            }
-
-            await this.loadInventory();
-            return true;
-        } catch (error) {
-            console.error('Erreur ajout inventaire:', error);
-            return false;
-        }
-    }
-
-    async getCharacterId() {
-        const result = await db.query('SELECT id FROM characters WHERE user_id = $1', [this.userId]);
-        return result.rows[0]?.id;
-    }
-
-    getPublicData() {
-        const base = super.getPublicData();
-        return {
-            ...base,
-            stats: this.stats,
-            equipment: Object.keys(this.equipment).reduce((acc, slot) => {
-                acc[slot] = this.equipment[slot] ? {
-                    name: this.equipment[slot].name,
-                    rarity: this.equipment[slot].rarity
-                } : null;
-                return acc;
-            }, {})
-        };
-    }
-}
-
-const lootSystem = new LootSystem();
 // Middleware d'authentification
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -926,16 +586,14 @@ io.on('connection', (socket) => {
 
             // Charger le personnage
             const character = await loadCharacter(decoded.userId);
-            
             if (character) {
-                const player = new PlayerExtended(
+                const player = new Player(
                     character.user_id,
                     character.name,
                     character.classe,
                     character.x,
                     character.y
                 );
-                await player.loadInventory();
                 player.level = character.level;
                 player.xp = character.xp;
                 player.hp = character.hp;
@@ -1033,6 +691,10 @@ io.on('connection', (socket) => {
             target.inCombat = false;
             saveCharacter(player);
 
+            if (app.locals && app.locals.equipment) {
+                app.locals.equipment.awardDrops(player.userId, target.type || 'gobelin', target.level || 1).catch(console.error);
+            }
+
             socket.emit('monsterKilled', {
                 xp: player.xp,
                 kamas: player.kamas,
@@ -1053,154 +715,7 @@ io.on('connection', (socket) => {
             }, 30000);
         }
     });
-    socket.on('getInventory', async () => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player) return;
 
-        await player.loadInventory();
-        
-        socket.emit('inventoryData', {
-            inventory: player.inventory,
-            equipment: player.equipment,
-            stats: player.stats,
-            kamas: player.kamas
-        });
-    });
-    socket.on('equipItem', async ({ itemId, slot }) => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player) return;
-
-        const success = await player.equipItem(itemId, slot);
-        if (success) {
-            socket.emit('equipSuccess', {
-                itemId,
-                slot,
-                stats: player.stats
-            });
-            
-            // Mettre à jour l'inventaire
-            socket.emit('inventoryData', {
-                inventory: player.inventory,
-                equipment: player.equipment,
-                stats: player.stats,
-                kamas: player.kamas
-            });
-        }
-    });
-    socket.on('unequipItem', async ({ slot }) => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player) return;
-
-        const success = await player.unequipItem(slot);
-        if (success) {
-            socket.emit('unequipSuccess', {
-                slot,
-                stats: player.stats
-            });
-            
-            // Mettre à jour l'inventaire
-            socket.emit('inventoryData', {
-                inventory: player.inventory,
-                equipment: player.equipment,
-                stats: player.stats,
-                kamas: player.kamas
-            });
-        }
-    });
-    socket.on('getSkills', () => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player) return;
-
-        // Tous les sorts de la classe
-        const allClassSkills = SKILLS[player.classe] || [];
-        
-        // IMPORTANT : Filtrer les sorts selon le niveau du joueur
-        const availableSkills = allClassSkills.filter(skill => {
-            return skill.level <= player.level;
-        });
-        
-        // Si le joueur n'a pas de sorts équipés, lui donner les 2 premiers disponibles
-        if (!player.equippedSkills || player.equippedSkills.length === 0) {
-            player.equippedSkills = availableSkills.slice(0, 2).map(s => s.id);
-        }
-
-        // Nettoyer les sorts équipés pour ne garder que ceux qui sont encore disponibles
-        player.equippedSkills = player.equippedSkills.filter(id => 
-            availableSkills.some(s => s.id === id)
-        );
-
-        
-        socket.emit('skillsData', {
-            available: availableSkills,
-            equipped: player.equippedSkills
-        });
-    });
-
-    // Équiper des sorts
-    socket.on('equipSkills', ({ skills }) => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player) return;
-
-        // Validation : max 4 sorts, doivent appartenir à la classe
-        const availableSkills = SKILLS[player.classe] || [];
-        const validSkills = skills.filter(id => 
-            availableSkills.some(s => s.id === id)
-        ).slice(0, 4);
-
-        player.equippedSkills = validSkills;
-
-        // Confirmer au client
-        socket.emit('skillsData', {
-            available: availableSkills,
-            equipped: player.equippedSkills
-        });
-
-        // Si en combat, mettre à jour les sorts disponibles
-        if (player.inCombat && player.currentTarget) {
-            const monster = gameWorld.monsters.get(player.currentTarget);
-            if (monster) {
-                const equippedSkillObjects = availableSkills.filter(s => 
-                    player.equippedSkills.includes(s.id)
-                );
-                
-                socket.emit('combatUpdate', {
-                    player: { hp: player.hp, pa: player.pa },
-                    monster: monster.getPublicData(),
-                    skills: equippedSkillObjects,
-                    turn: 'player',
-                    log: []
-                });
-            }
-        }
-    });
-
-    // Fuir le combat
-    socket.on('flee', () => {
-        const player = gameWorld.players.get(socket.userId);
-        if (!player || !player.inCombat) return;
-
-        // 70% de chance de fuir
-        if (Math.random() < 0.7) {
-            const monster = gameWorld.monsters.get(player.currentTarget);
-            if (monster) {
-                monster.inCombat = false;
-            }
-            player.inCombat = false;
-            player.currentTarget = null;
-
-            socket.emit('combatEnded', {
-                message: 'Tu as réussi à fuir !',
-                player: player.getPublicData()
-            });
-        } else {
-            socket.emit('combatUpdate', {
-                player: { hp: player.hp, pa: player.pa },
-                monster: gameWorld.monsters.get(player.currentTarget)?.getPublicData(),
-                turn: 'player',
-                log: [{ side: 'system', text: 'Tu n\'as pas réussi à fuir !' }]
-            });
-        }
-    });
 
     // Chunk request (lazy terrain loading)
     socket.on('requestChunk', ({ centerX, centerY, width, height }) => {
@@ -1251,23 +766,6 @@ io.on('connection', (socket) => {
                 player.maxHp = player.getMaxHp();
                 player.hp = Math.min(player.hp, player.maxHp);
             }
-            const loot = await lootSystem.generateLoot(target.type, target.level);
-            let lootMessage = '';
-
-            for (const item of loot) {
-                if (item.type === 'gold') {
-                    player.kamas += item.amount;
-                    lootMessage += `💰 ${item.amount} kamas, `;
-                } else {
-                    await player.addItemToInventory(item.id, item.quantity);
-                    const rarityColor = RARITY_COLORS[item.rarity];
-                    lootMessage += `📦 ${item.name} (${item.rarity}), `;
-                }
-            }
-
-            if (lootMessage) {
-                lootMessage = 'Loot: ' + lootMessage.slice(0, -2);
-            }
 
             await saveCharacter(player);
 
@@ -1277,9 +775,8 @@ io.on('connection', (socket) => {
             gameWorld.monsters.delete(targetId);
 
             io.to(socket.id).emit('combatEnded', {
-                message: `Tu as vaincu ${target.type} ! +${xpGain} XP, +${kamasGain} kamas. ${lootMessage}`,
-                player: { xp: player.xp, level: player.level, hp: player.hp, maxHp: player.maxHp, kamas: player.kamas },
-                loot: loot
+                message: `Tu as vaincu ${target.type} ! +${xpGain} XP, +${kamasGain} kamas.`,
+                player: { xp: player.xp, level: player.level, hp: player.hp, maxHp: player.maxHp, kamas: player.kamas }
             });
 
             // Respawn monster later
@@ -1349,7 +846,6 @@ io.on('connection', (socket) => {
             const player = gameWorld.players.get(socket.userId);
             if (player) {
                 saveCharacter(player);
-                saveCharacterEquipment(player);
                 gameWorld.players.delete(socket.userId);
                 io.emit('playerLeft', { userId: socket.userId });
             }
@@ -1398,31 +894,7 @@ async function saveCharacter(player) {
         console.error('Erreur sauvegarde personnage:', error);
     }
 }
-async function saveCharacterEquipment(player) {
-    try {
-        const equipmentColumns = [];
-        const equipmentValues = [];
-        let paramIndex = 1;
 
-        Object.entries(player.equipment).forEach(([slot, item]) => {
-            equipmentColumns.push(`equipped_${slot} = ${paramIndex}`);
-            equipmentValues.push(item ? item.item_id : null);
-            paramIndex++;
-        });
-
-        equipmentValues.push(player.userId);
-
-        if (equipmentColumns.length > 0) {
-            await db.query(`
-                UPDATE characters 
-                SET ${equipmentColumns.join(', ')}
-                WHERE user_id = ${paramIndex}
-            `, equipmentValues);
-        }
-    } catch (error) {
-        console.error('Erreur sauvegarde équipement:', error);
-    }
-}
 async function saveCharacterPosition(player) {
     try {
         await db.query(
@@ -1453,6 +925,18 @@ async function respawnPlayer(player, socketId) {
 // ========================
 
 const gameWorld = new GameWorld();
+
+// >>> Loot/Equipment module install
+(async () => {
+  try {
+    const equipment = await installEquipment({ app, io, db, gameWorld });
+    app.locals.equipment = equipment;
+    console.log('✅ Module Loot/Équipement initialisé');
+  } catch (e) {
+    console.error('❌ Init module Loot/Équipement', e);
+  }
+})();
+// <<<
 
 // Test de connexion à la base de données
 db.query('SELECT NOW()', (err, res) => {

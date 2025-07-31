@@ -1,0 +1,92 @@
+
+.loot-notification {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(0, 0, 0, 0.95);
+    border: 2px solid #ffd700;
+    border-radius: 15px;
+    padding: 25px;
+    z-index: 2000;
+    opacity: 0;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+}
+
+.loot-notification.visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.loot-notification h3 {
+    color: #ffd700;
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.loot-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.loot-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid;
+    border-radius: 10px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.1rem;
+    animation: slideIn 0.5s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.loot-icon {
+    font-size: 1.5rem;
+}
+
+.loot-name {
+    flex: 1;
+    font-weight: 600;
+}
+
+.loot-rarity {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    text-transform: uppercase;
+}
+
+/* Styles par rareté */
+.loot-item.unique {
+    animation: slideIn 0.5s ease-out, uniqueGlow 2s ease-in-out infinite;
+}
+
+.loot-item.legendary {
+    background: rgba(255, 128, 0, 0.1);
+}
+
+.loot-item.epic {
+    background: rgba(163, 53, 238, 0.1);
+}
+
+.loot-item.rare {
+    background: rgba(0, 128, 255, 0.1);
+}
+
+.loot-item.uncommon {
+    background: rgba(30, 255, 0, 0.1);
+} 

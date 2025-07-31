@@ -65,6 +65,52 @@ function Game({ user }) {
             }));
         });
 
+        newSocket.on('combatEnded', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: { 
+                    ...prev.player, 
+                    xp: data.player.xp, 
+                    level: data.player.level,
+                    hp: data.player.hp,
+                    maxHp: data.player.maxHp,
+                    kamas: data.player.kamas 
+                },
+                combat: { active: false, player: null, monster: null, skills: [], turn: 'player', log: [] },
+                chatMessages: [
+                    ...prev.chatMessages, 
+                    { 
+                        type: 'system', 
+                        text: data.message, 
+                        timestamp: Date.now() 
+                    }
+                ]
+            }));
+            
+            // Afficher le loot obtenu
+            if (data.loot && data.loot.length > 0) {
+                const lootMessages = data.loot.map(item => {
+                    if (item.type === 'gold') {
+                        return { 
+                            type: 'loot', 
+                            text: `💰 +${item.amount} kamas`, 
+                            timestamp: Date.now() 
+                        };
+                    }
+                    return { 
+                        type: 'loot', 
+                        text: `📦 ${item.name} (${item.rarity})`, 
+                        timestamp: Date.now(),
+                        rarity: item.rarity 
+                    };
+                });
+                
+                setGameState(prev => ({
+                    ...prev,
+                    chatMessages: [...prev.chatMessages, ...lootMessages]
+                }));
+            }
+        });
 
         newSocket.on('authError', (error) => {
             console.error('Erreur auth:', error);

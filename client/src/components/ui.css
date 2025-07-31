@@ -136,3 +136,46 @@
     padding: 8px 12px;
     background: rgba(255, 255,255);
 }
+
+.chat-message.loot {
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+}
+
+.chat-message.loot.common {
+    color: #B0B0B0;
+    background: rgba(176, 176, 176, 0.1);
+}
+
+.chat-message.loot.uncommon {
+    color: #1EFF00;
+    background: rgba(30, 255, 0, 0.1);
+}
+
+.chat-message.loot.rare {
+    color: #0080FF;
+    background: rgba(0, 128, 255, 0.1);
+}
+
+.chat-message.loot.epic {
+    color: #A335EE;
+    background: rgba(163, 53, 238, 0.1);
+}
+
+.chat-message.loot.legendary {
+    color: #FF8000;
+    background: rgba(255, 128, 0, 0.1);
+}
+
+.chat-message.loot.unique {
+    color: #FF0000;
+    background: rgba(255, 0, 0, 0.1);
+    animation: uniquePulse 2s ease-in-out infinite;
+}
+
+@keyframes uniquePulse {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
