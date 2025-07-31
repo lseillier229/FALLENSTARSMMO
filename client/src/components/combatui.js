@@ -1,15 +1,15 @@
 // ========================
-// COMPONENTS/COMBATUI.JS - Interface de combat (sprites atlas + sorts)
+// COMPONENTS/COMBATUI.JS - Interface de combat améliorée
 // ========================
 import React from 'react';
 import './combat.css';
 
 export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
-  if (!combat) return null;
+  if (!combat || !combat.active) return null;
 
   const { player, monster, skills, turn, log } = combat;
 
-  // helper pour pourcentages (corrigé)
+  // Helper pour les pourcentages
   const percent = (num, den) =>
     Math.max(0, Math.min(100, Math.round((num / Math.max(1, den)) * 100)));
 
@@ -22,7 +22,7 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
     if (typeof onUseSkill === 'function') onUseSkill(skill.id);
   };
 
-  // Normalise les entrées du log : accepte string OU {side, text}
+  // Normalise les entrées du log
   const normalizeLog = (entry) => {
     if (typeof entry === 'string') return { side: 'system', text: entry };
     if (entry && typeof entry === 'object') {
@@ -35,13 +35,10 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
 
   return (
     <div className="combat-bar">
-      {/* Zone portraits */}
+      {/* Zone des combattants */}
       <div className="fighters">
         <div className="fighter left">
-          <div
-            className={`sprite player-sprite ${player?.classe || ''}`}
-            title={player?.classe || 'Player'}
-          />
+          <div className={`sprite player-sprite ${player?.classe || ''}`} />
           <div className="info">
             <div className="name">{player?.username || 'Joueur'}</div>
             <div className="bars">
@@ -56,20 +53,17 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
               </div>
               <div className="bar pa">
                 <div className="fill" style={{ width: `${percent(player?.pa ?? 0, 6)}%` }} />
-                <span className="label">PA {player?.pa ?? 0}</span>
+                <span className="label">PA {player?.pa ?? 0}/6</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="fighter right">
-          <div
-            className={`sprite monster-sprite ${monster?.type || 'mob'}`}
-            title={monster?.type || 'Monstre'}
-          />
+          <div className={`sprite monster-sprite ${monster?.type || 'mob'}`} />
           <div className="info">
             <div className="name">
-              {monster?.type || 'Monstre'} {monster ? `(Lvl ${monster.level ?? '?'})` : ''}
+              {monster?.type || 'Monstre'} (Niv. {monster?.level ?? '?'})
             </div>
             <div className="bars">
               <div className="bar hp">
@@ -86,10 +80,10 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
         </div>
       </div>
 
-      {/* Boutons de sorts (équipés) */}
+      {/* Sorts disponibles */}
       <div className="skills-row">
         {skillsList.length === 0 && (
-          <div className="hint">Aucun sort équipé. Ouvre 🧪 Sorts pour en choisir.</div>
+          <div className="hint">Aucun sort équipé. Ouvre le grimoire pour en choisir !</div>
         )}
 
         {skillsList.map((s) => (
@@ -98,35 +92,36 @@ export default function CombatUI({ combat, onUseSkill, onFlee, onRest }) {
             className="skill-btn"
             disabled={!canPlay || (player?.pa ?? 0) < s.pa}
             onClick={() => handleUse(s)}
-            title={`PA ${s.pa} • ${Array.isArray(s.power) ? `${s.power[0]}–${s.power[1]}` : s.power}`}
           >
             <div className="skill-name">{s.name}</div>
-            <div className="skill-meta">PA {s.pa}</div>
+            <div className="skill-meta">
+              PA: {s.pa} • Dégâts: {Array.isArray(s.power) ? `${s.power[0]}-${s.power[1]}` : s.power}
+            </div>
           </button>
         ))}
       </div>
 
-      {/* Actions secondaires */}
+      {/* Actions et indicateur de tour */}
       <div className="actions-row">
         <button className="action" onClick={onFlee} disabled={!canPlay}>
           🏃 Fuir
         </button>
+        <div className="turn-indicator">
+          {turn === 'player' ? '⚔️ À toi de jouer !' : '🛡️ Tour du monstre...'}
+        </div>
         <button
           className="action"
           onClick={onRest}
           disabled={!player || player.inCombat || player.isDead}
         >
-          😴 Se reposer
+          💊 Se soigner
         </button>
-        <div className="turn-indicator">
-          {turn === 'player' ? '👉 À toi de jouer' : '🛡️ Tour du monstre'}
-        </div>
       </div>
 
-      {/* Journal */}
+      {/* Journal de combat */}
       <div className="log">
         {(Array.isArray(log) ? log : [])
-          .slice(-8)
+          .slice(-10)
           .map((entry, i) => {
             const { side, text } = normalizeLog(entry);
             return (

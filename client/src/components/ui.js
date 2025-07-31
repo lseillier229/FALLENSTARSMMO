@@ -1,7 +1,7 @@
 // ========================
-// COMPONENTS/UI.JS - Interface utilisateur
+// COMPONENTS/UI.JS - Interface utilisateur corrigée
 // ========================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './ui.css';
 import Spellbook from './spellbook';
 
@@ -10,6 +10,22 @@ function UI({ gameState, socket, onTargetSelect }) {
   const [showInventory, setShowInventory] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showSpellbook, setShowSpellbook] = useState(false);
+  const [playerSkills, setPlayerSkills] = useState({ available: [], equipped: [] });
+
+  // Charger les compétences du joueur
+  useEffect(() => {
+    if (socket && gameState.player) {
+      socket.emit('getSkills');
+      
+      socket.on('skillsData', (data) => {
+        setPlayerSkills(data);
+      });
+
+      return () => {
+        socket.off('skillsData');
+      };
+    }
+  }, [socket, gameState.player]);
 
   const handleChatSubmit = (e) => {
     e.preventDefault();
@@ -22,9 +38,25 @@ function UI({ gameState, socket, onTargetSelect }) {
   const handleAction = (action) => {
     if (!socket) return;
     switch (action) {
-      case 'rest': socket.emit('rest'); break;
-      case 'flee': socket.emit('flee'); break;
-      default: break;
+      case 'rest': 
+        socket.emit('rest'); 
+        break;
+      case 'flee': 
+        if (gameState.combat?.active) {
+          socket.emit('flee');
+        }
+        break;
+      default: 
+        break;
+    }
+  };
+
+  const handleEquipSkills = (skillIds) => {
+    if (socket) {
+      socket.emit('equipSkills', { skills: skillIds });
+      // Mettre à jour localement aussi
+      setPlayerSkills(prev => ({ ...prev, equipped: skillIds }));
+      setShowSpellbook(false);
     }
   };
 
@@ -33,11 +65,23 @@ function UI({ gameState, socket, onTargetSelect }) {
       {/* Panel d'actions */}
       <div className="action-panel">
         <h3>⚡ Actions</h3>
-        <button onClick={() => handleAction('rest')} className="action-btn">😴 Se reposer</button>
-        <button onClick={() => handleAction('flee')} className="action-btn">🏃 Fuir</button>
-        <button onClick={() => setShowInventory(!showInventory)} className="action-btn">🎒 Inventaire</button>
-        <button onClick={() => setShowStats(!showStats)} className="action-btn">📊 Statistiques</button>
-        <button onClick={() => setShowSpellbook(true)} className="action-btn">🧪 Sorts</button>
+        <button onClick={() => handleAction('rest')} className="action-btn">
+          💊 Se soigner
+        </button>
+        {gameState.combat?.active && (
+          <button onClick={() => handleAction('flee')} className="action-btn">
+            🏃 Fuir le combat
+          </button>
+        )}
+        <button onClick={() => setShowInventory(!showInventory)} className="action-btn">
+          🎒 Inventaire
+        </button>
+        <button onClick={() => setShowStats(!showStats)} className="action-btn">
+          📊 Statistiques
+        </button>
+        <button onClick={() => setShowSpellbook(true)} className="action-btn">
+          📜 Grimoire
+        </button>
       </div>
 
       {/* Chat */}
@@ -45,7 +89,12 @@ function UI({ gameState, socket, onTargetSelect }) {
         <div className="chat-messages">
           {gameState.chatMessages.map((msg, index) => (
             <div key={index} className={`chat-message ${msg.type}`}>
-              <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+              <span className="timestamp">
+                {new Date(msg.timestamp).toLocaleTimeString('fr-FR', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </span>
               <span className="message">{msg.text}</span>
             </div>
           ))}
@@ -57,52 +106,61 @@ function UI({ gameState, socket, onTargetSelect }) {
             onChange={(e) => setChatInput(e.target.value)}
             placeholder="Tape ton message..."
             className="chat-input"
+            maxLength={200}
           />
           <button type="submit" className="chat-send">💬</button>
         </form>
       </div>
 
-      {/* Panel joueurs */}
+      {/* Panel joueurs en ligne */}
       <div className="players-panel">
-        <h3>👥 Joueurs ({gameState.players.length})</h3>
-        {gameState.players.map((player) => (
+        <h3>👥 Joueurs en ligne ({gameState.players?.length || 0})</h3>
+        {(gameState.players || []).map((player) => (
           <div key={player.userId} className="player-item">
             <span className={`player-status ${player.inCombat ? 'combat' : 'normal'}`}>
-              {player.inCombat ? '⚔️' : '🟢'}
+              {player.isDead ? '💀' : player.inCombat ? '⚔️' : '🟢'}
             </span>
             <span className="player-name">{player.username}</span>
-            <span className="player-level">Lvl {player.level}</span>
+            <span className="player-level">Niv. {player.level}</span>
           </div>
         ))}
       </div>
 
-      {/* Inventaire */}
+      {/* Modal Inventaire */}
       {showInventory && (
         <div className="modal-overlay" onClick={() => setShowInventory(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>🎒 Inventaire</h2>
             <div className="inventory-grid">
-              <div className="empty-slot">Vide</div>
-              <div className="empty-slot">Vide</div>
-              <div className="empty-slot">Vide</div>
+              {/* Pour l'instant, inventaire vide */}
+              {[...Array(12)].map((_, i) => (
+                <div key={i} className="empty-slot">Vide</div>
+              ))}
             </div>
+            <p style={{ marginTop: '20px', textAlign: 'center', opacity: 0.6 }}>
+              Bientôt : ramasse des objets en explorant !
+            </p>
             <button onClick={() => setShowInventory(false)}>Fermer</button>
           </div>
         </div>
       )}
 
-      {/* Stats */}
+      {/* Modal Statistiques */}
       {showStats && gameState.player && (
         <div className="modal-overlay" onClick={() => setShowStats(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>📊 Statistiques de {gameState.player.username}</h2>
             <div className="stats-grid">
               <div className="stat-item">
-                <span className="stat-label">Niveau:</span>
+                <span className="stat-label">Classe :</span>
+                <span className="stat-value">{gameState.player.classe.toUpperCase()}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Niveau :</span>
                 <span className="stat-value">{gameState.player.level}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Expérience:</span>
+                <span className="stat-label">Expérience :</span>
                 <span className="stat-value">
                   {gameState.player.xp}/{gameState.player.level * 100}
                 </span>
@@ -114,7 +172,7 @@ function UI({ gameState, socket, onTargetSelect }) {
                 </div>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Points de Vie:</span>
+                <span className="stat-label">Points de Vie :</span>
                 <span className="stat-value">
                   {gameState.player.hp}/{gameState.player.maxHp}
                 </span>
@@ -126,8 +184,12 @@ function UI({ gameState, socket, onTargetSelect }) {
                 </div>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Kamas:</span>
-                <span className="stat-value">{gameState.player.kamas || 0}</span>
+                <span className="stat-label">Points d'Action :</span>
+                <span className="stat-value">{gameState.player.pa || 6}/6</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Kamas :</span>
+                <span className="stat-value">💰 {gameState.player.kamas || 0}</span>
               </div>
             </div>
             <button onClick={() => setShowStats(false)}>Fermer</button>
@@ -135,15 +197,12 @@ function UI({ gameState, socket, onTargetSelect }) {
         </div>
       )}
 
-      {/* Grimoire de sorts */}
+      {/* Modal Grimoire de sorts */}
       {showSpellbook && (
         <Spellbook
-          skills={(gameState.skills && gameState.skills.available) || []}
-          equipped={(gameState.skills && gameState.skills.equipped) || []}
-          onEquip={(ids) => {
-            if (socket) socket.emit('equipSkills', { skills: ids });
-            setShowSpellbook(false);
-          }}
+          skills={playerSkills.available}
+          equipped={playerSkills.equipped}
+          onEquip={handleEquipSkills}
           onClose={() => setShowSpellbook(false)}
         />
       )}

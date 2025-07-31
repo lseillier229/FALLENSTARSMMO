@@ -61,20 +61,44 @@ class Perlin {
 // === Combat/Skills config ===
 const SKILLS = {
     iop: [
-        { id: 'iop_strike', name: 'Coup de Iop', pa: 3, power: [18, 26] },
-        { id: 'colere', name: 'Colère', pa: 5, power: [35, 50] }
+        { id: 'pression', name: 'Pression', pa: 2, power: [8, 12], level: 1 },
+        { id: 'bond', name: 'Bond', pa: 3, power: [14, 20], level: 1 },
+        { id: 'intimidation', name: 'Intimidation', pa: 2, power: [10, 14], level: 3 },
+        { id: 'compulsion', name: 'Compulsion', pa: 4, power: [22, 30], level: 5 },
+        { id: 'epee_divine', name: 'Épée Divine', pa: 5, power: [35, 45], level: 8 },
+        { id: 'colere', name: 'Colère de Iop', pa: 6, power: [45, 60], level: 10 },
+        { id: 'vitalite', name: 'Vitalité', pa: 2, power: [12, 18], level: 12 },
+        { id: 'puissance', name: 'Puissance', pa: 5, power: [40, 55], level: 15 }
     ],
     cra: [
-        { id: 'tir_precis', name: 'Tir Précis', pa: 3, power: [14, 22] },
-        { id: 'fleche_puissante', name: 'Flèche Puissante', pa: 5, power: [28, 42] }
+        { id: 'fleche_magique', name: 'Flèche Magique', pa: 2, power: [7, 11], level: 1 },
+        { id: 'tir_a_reculons', name: 'Tir à Reculons', pa: 3, power: [12, 18], level: 1 },
+        { id: 'fleche_glacee', name: 'Flèche Glacée', pa: 3, power: [15, 21], level: 3 },
+        { id: 'tir_puissant', name: 'Tir Puissant', pa: 4, power: [20, 28], level: 5 },
+        { id: 'fleche_harcelante', name: 'Flèche Harcelante', pa: 4, power: [24, 32], level: 8 },
+        { id: 'fleche_punitive', name: 'Flèche Punitive', pa: 5, power: [32, 42], level: 10 },
+        { id: 'oeil_de_taupe', name: 'Œil de Taupe', pa: 3, power: [18, 24], level: 12 },
+        { id: 'fleche_destructrice', name: 'Flèche Destructrice', pa: 6, power: [45, 60], level: 15 }
     ],
     eni: [
-        { id: 'mot_interdit', name: 'Mot Interdit', pa: 3, power: [12, 18] },
-        { id: 'soin', name: 'Soin', pa: 3, power: [-18, -28] } // négatif = soin
+        { id: 'mot_soignant', name: 'Mot Soignant', pa: 2, power: [-15, -20], level: 1 },
+        { id: 'mot_interdit', name: 'Mot Interdit', pa: 3, power: [10, 16], level: 1 },
+        { id: 'mot_stimulant', name: 'Mot Stimulant', pa: 2, power: [-18, -24], level: 3 },
+        { id: 'mot_drainant', name: 'Mot Drainant', pa: 4, power: [18, 26], level: 5 },
+        { id: 'mot_revitalisant', name: 'Mot Revitalisant', pa: 3, power: [-25, -35], level: 8 },
+        { id: 'mot_de_reconstitution', name: 'Reconstitution', pa: 4, power: [-35, -45], level: 10 },
+        { id: 'mot_vampirique', name: 'Mot Vampirique', pa: 5, power: [22, 30], level: 12 },
+        { id: 'mot_de_regeneration', name: 'Régénération', pa: 5, power: [-40, -55], level: 15 }
     ],
     sadi: [
-        { id: 'ronces', name: 'Ronces', pa: 3, power: [15, 24] },
-        { id: 'puissance_veg', name: 'Puissance Végétale', pa: 4, power: [22, 32] }
+        { id: 'ronce', name: 'Ronce', pa: 2, power: [8, 12], level: 1 },
+        { id: 'poison_paralysant', name: 'Poison Paralysant', pa: 3, power: [12, 18], level: 1 },
+        { id: 'larme', name: 'La Larme', pa: 3, power: [14, 20], level: 3 },
+        { id: 'sacrifice_poupesque', name: 'Sacrifice Poupesque', pa: 4, power: [20, 28], level: 5 },
+        { id: 'ronce_aggressive', name: 'Ronce Agressive', pa: 4, power: [24, 32], level: 8 },
+        { id: 'puissance_sylvestre', name: 'Puissance Sylvestre', pa: 5, power: [32, 42], level: 10 },
+        { id: 'ronce_multiple', name: 'Ronce Multiple', pa: 5, power: [28, 38], level: 12 },
+        { id: 'folie_vegetale', name: 'Folie Végétale', pa: 6, power: [45, 60], level: 15 }
     ]
 };
 
@@ -317,6 +341,7 @@ class Player {
         this.inCombat = false;
         this.lastAction = Date.now();
         this.socketId = null;
+        this.equippedSkills = [];
     }
 
     getMaxHp() {
@@ -325,7 +350,13 @@ class Player {
         };
         return (baseHp[this.classe] || 100) + (this.level - 1) * 20;
     }
-
+    getEquippedSkills() {
+        const allSkills = SKILLS[this.classe] || [];
+        if (!this.equippedSkills || this.equippedSkills.length === 0) {
+            return allSkills.slice(0, 2); // Par défaut, les 2 premiers
+        }
+        return allSkills.filter(s => this.equippedSkills.includes(s.id));
+    }
     getPublicData() {
         return {
             userId: this.userId,
@@ -378,7 +409,7 @@ class Player {
             sock.emit('combatStarted', {
                 player: { userId: this.userId, username: this.username, level: this.level, hp: this.hp, maxHp: this.maxHp, pa: this.pa, classe: this.classe },
                 monster: monster.getPublicData(),
-                skills: this.skills,
+                skills: this.getEquippedSkills(),
                 turn: 'player'
             });
         }
@@ -711,6 +742,100 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('getSkills', () => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player) return;
+
+        // Tous les sorts de la classe
+        const allClassSkills = SKILLS[player.classe] || [];
+        
+        // IMPORTANT : Filtrer les sorts selon le niveau du joueur
+        const availableSkills = allClassSkills.filter(skill => {
+            return skill.level <= player.level;
+        });
+        
+        // Si le joueur n'a pas de sorts équipés, lui donner les 2 premiers disponibles
+        if (!player.equippedSkills || player.equippedSkills.length === 0) {
+            player.equippedSkills = availableSkills.slice(0, 2).map(s => s.id);
+        }
+
+        // Nettoyer les sorts équipés pour ne garder que ceux qui sont encore disponibles
+        player.equippedSkills = player.equippedSkills.filter(id => 
+            availableSkills.some(s => s.id === id)
+        );
+
+        
+        socket.emit('skillsData', {
+            available: availableSkills,
+            equipped: player.equippedSkills
+        });
+    });
+
+    // Équiper des sorts
+    socket.on('equipSkills', ({ skills }) => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player) return;
+
+        // Validation : max 4 sorts, doivent appartenir à la classe
+        const availableSkills = SKILLS[player.classe] || [];
+        const validSkills = skills.filter(id => 
+            availableSkills.some(s => s.id === id)
+        ).slice(0, 4);
+
+        player.equippedSkills = validSkills;
+
+        // Confirmer au client
+        socket.emit('skillsData', {
+            available: availableSkills,
+            equipped: player.equippedSkills
+        });
+
+        // Si en combat, mettre à jour les sorts disponibles
+        if (player.inCombat && player.currentTarget) {
+            const monster = gameWorld.monsters.get(player.currentTarget);
+            if (monster) {
+                const equippedSkillObjects = availableSkills.filter(s => 
+                    player.equippedSkills.includes(s.id)
+                );
+                
+                socket.emit('combatUpdate', {
+                    player: { hp: player.hp, pa: player.pa },
+                    monster: monster.getPublicData(),
+                    skills: equippedSkillObjects,
+                    turn: 'player',
+                    log: []
+                });
+            }
+        }
+    });
+
+    // Fuir le combat
+    socket.on('flee', () => {
+        const player = gameWorld.players.get(socket.userId);
+        if (!player || !player.inCombat) return;
+
+        // 70% de chance de fuir
+        if (Math.random() < 0.7) {
+            const monster = gameWorld.monsters.get(player.currentTarget);
+            if (monster) {
+                monster.inCombat = false;
+            }
+            player.inCombat = false;
+            player.currentTarget = null;
+
+            socket.emit('combatEnded', {
+                message: 'Tu as réussi à fuir !',
+                player: player.getPublicData()
+            });
+        } else {
+            socket.emit('combatUpdate', {
+                player: { hp: player.hp, pa: player.pa },
+                monster: gameWorld.monsters.get(player.currentTarget)?.getPublicData(),
+                turn: 'player',
+                log: [{ side: 'system', text: 'Tu n\'as pas réussi à fuir !' }]
+            });
+        }
+    });
 
     // Chunk request (lazy terrain loading)
     socket.on('requestChunk', ({ centerX, centerY, width, height }) => {

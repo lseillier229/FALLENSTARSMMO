@@ -241,6 +241,15 @@ function Game({ user }) {
         const monsterId = gameState.combat.monster?.id;
         socket.emit('useSkill', { targetId: monsterId, skillId });
     };
+    const handleFlee = () => {
+        if (!socket || !gameState.combat?.active) return;
+        socket.emit('flee');
+    };
+
+    const handleRest = () => {
+        if (!socket || gameState.player?.inCombat || gameState.player?.isDead) return;
+        socket.emit('rest');
+    };
 
     const handleTargetSelect = (targetId) => {
         setGameState(prev => ({
