@@ -1035,14 +1035,30 @@ io.on('connection', (socket) => {
         const inRange = Math.abs(target.x - player.x) <= 1 && Math.abs(target.y - player.y) <= 1;
         if (!inRange) return;
 
-        const damage = Math.floor(Math.random() * 30) + 10 + player.level * 2;
+        // --- Player attack with equipment stats ---
+        const pStats = player.stats || {};
+        const baseMin = (pStats.damageMin ?? (10 + player.level * 2));
+        const baseMax = (pStats.damageMax ?? (30 + player.level * 3));
+        let damage = Math.floor(Math.random() * (baseMax - baseMin + 1)) + baseMin;
+        const crit = Math.random() < ((pStats.critChance || 0) / 100);
+        if (crit) damage = Math.floor(damage * 1.5);
+        // No monster defense for now (can be added later)
         target.hp -= damage;
+        // Lifesteal from player's equipment
+        const lsPct = (pStats.lifeSteal || 0) / 100;
+        if (lsPct > 0 && damage > 0) {
+            const heal = Math.max(1, Math.floor(damage * lsPct));
+            player.hp = Math.min(player.maxHp, player.hp + heal);
+        }
         player.pa -= 3;
 
         socket.emit('attackResult', {
             damage,
             targetHp: target.hp,
-            pa: player.pa
+            pa: player.pa,
+            crit,
+            pa: player.pa,
+            hp: player.hp,
         });
 
         if (target.hp <= 0) {
@@ -1097,7 +1113,11 @@ io.on('connection', (socket) => {
             inventory: player.inventory,
             equipment: player.equipment,
             stats: player.stats,
-            kamas: player.kamas
+            kamas: player.kamas,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                pa: player.pa,
+                pm: player.pm
         });
     });
     socket.on('equipItem', async ({ itemId, slot }) => {
@@ -1109,7 +1129,11 @@ io.on('connection', (socket) => {
             socket.emit('equipSuccess', {
                 itemId,
                 slot,
-                stats: player.stats
+                stats: player.stats,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                pa: player.pa,
+                pm: player.pm
             });
             
             // Mettre à jour l'inventaire
@@ -1117,7 +1141,11 @@ io.on('connection', (socket) => {
                 inventory: player.inventory,
                 equipment: player.equipment,
                 stats: player.stats,
-                kamas: player.kamas
+                kamas: player.kamas,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                pa: player.pa,
+                pm: player.pm
             });
         }
     });
@@ -1129,7 +1157,11 @@ io.on('connection', (socket) => {
         if (success) {
             socket.emit('unequipSuccess', {
                 slot,
-                stats: player.stats
+                stats: player.stats,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                pa: player.pa,
+                pm: player.pm
             });
             
             // Mettre à jour l'inventaire
@@ -1137,7 +1169,11 @@ io.on('connection', (socket) => {
                 inventory: player.inventory,
                 equipment: player.equipment,
                 stats: player.stats,
-                kamas: player.kamas
+                kamas: player.kamas,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                pa: player.pa,
+                pm: player.pm
             });
         }
     });
@@ -1327,8 +1363,18 @@ io.on('connection', (socket) => {
 
         // Monster turn (simple AI)
         const mSkill = pick(MONSTER_SKILLS);
+        // --- Monster turn with player's defense & dodge ---
+        const pStats2 = player.stats || {};
         let mDmg = rand(mSkill.power[0], mSkill.power[1]) + Math.floor(target.level * 1.5);
-        player.hp = Math.max(0, player.hp - mDmg);
+        // Dodge check
+        const dodged = Math.random() < ((pStats2.dodgeChance || 0) / 100);
+        if (!dodged) {
+            const mitig = Math.max(1, mDmg - (pStats2.defense || 0));
+            player.hp = Math.max(0, player.hp - mitig);
+            mDmg = mitig;
+        } else {
+            mDmg = 0;
+        }
 
         logs.push({ side: 'monster', text: `${target.type} utilise ${mSkill.name} et inflige ${mDmg} dégâts.` });
 

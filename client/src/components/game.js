@@ -30,6 +30,31 @@ function Game({ user }) {
         newSocket.emit('authenticate', localStorage.getItem('token'));
 
         // Événements WebSocket
+        // MAJ stats du joueur après équipement/déséquipement
+        newSocket.on('equipSuccess', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: {
+                    ...prev.player,
+                    hp: data.hp ?? prev.player.hp,
+                    maxHp: data.maxHp ?? prev.player.maxHp,
+                    pa: data.pa ?? prev.player.pa,
+                    pm: data.pm ?? prev.player.pm
+                }
+            }));
+        });
+        newSocket.on('unequipSuccess', (data) => {
+            setGameState(prev => ({
+                ...prev,
+                player: {
+                    ...prev.player,
+                    hp: data.hp ?? prev.player.hp,
+                    maxHp: data.maxHp ?? prev.player.maxHp,
+                    pa: data.pa ?? prev.player.pa,
+                    pm: data.pm ?? prev.player.pm
+                }
+            }));
+        });
         newSocket.on('authSuccess', (data) => {
             setGameState(prev => ({
                 ...prev,
